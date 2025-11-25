@@ -4,7 +4,13 @@
 # Personal task files
 Tasks/*.md
 !Tasks/.gitkeep
+!Tasks/README.md
 BACKLOG.md
+
+# Personal knowledge files
+Knowledge/*.md
+!Knowledge/.gitkeep
+!Knowledge/README.md
 
 # Personal configuration
 CLAUDE.md       # If customized from template
