@@ -293,36 +293,46 @@ jobs:
           read -r -d '' PROMPT << 'PROMPT_END' || true
           You are a productivity assistant. Generate a complete Slack daily briefing.
 
-          CRITICAL: Output must be UNDER 2500 characters total (Slack limit is 3000).
+          CRITICAL: Output must be UNDER 2800 characters total.
           Use Slack mrkdwn: *bold*, _italic_, • for bullets
 
-          Generate this EXACT structure:
+          Generate this EXACT structure (follow formatting precisely):
 
           *☀️ Daily Briefing — [TODAY's DATE]*
 
           *🚨 P0 Tasks (Do Today):* [count]
-          [List P0 tasks grouped by status - show max 3 per group, truncate names if needed]
+          *🔴 Not started*
+          • [task name - truncate if over 50 chars]
+          • [task name]
+          *🟡 In Progress*
+          • [task name]
 
           *⚡ P1 Tasks (This Week):* [count]
-          [List P1 tasks grouped by status - show max 4 per group, truncate names if needed]
+          *🔴 Not started*
+          • [task name]
+          *🟡 In Progress*
+          • [task name]
+          • [task name]
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *📊 Recent Activity (24h)*
-          [Intelligently summarize Jira activity in 2-3 bullets - group similar items]
+          [Intelligently summarize Jira activity in 3-5 bullets - group similar items, mention specific ticket keys]
           [Mention Confluence if any activity]
-          • 💬 Slack: _Ask Cursor IDE for context_
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *💡 AI Focus Recommendation*
-          [2-3 specific tasks with emoji and 1-line reason why they matter]
-          Use: 🔴 not started, 🟡 in progress, 🟠 blocked
+          • 🔴 *[Task name]*: _[1-line reason why this matters]_
+          • 🟡 *[Task name]*: _[1-line reason]_
+          • 🟡 *[Task name]*: _[1-line reason]_
 
-          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          _Open Cursor IDE to analyze Slack activity or apply task updates_
-
-          Be CONCISE. Truncate long task names. Prioritize clarity over completeness.
+          IMPORTANT TASK FORMAT RULES:
+          - Group tasks by status with HEADER then list (NOT emoji per line)
+          - Status headers: *🔴 Not started* and *🟡 In Progress* (as bold headers)
+          - Task bullets have NO emoji, just • [task name]
+          - Only show status headers that have tasks
+          - Skip empty groups entirely
           PROMPT_END
           
           TODAY=$(date +'%A, %B %d, %Y')

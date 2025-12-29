@@ -245,7 +245,7 @@ jobs:
           read -r -d '' PROMPT << 'PROMPT_END' || true
           You are a productivity assistant. Generate a complete Slack end-of-day report.
 
-          CRITICAL: Output must be UNDER 2500 characters total (Slack limit is 3000).
+          CRITICAL: Output must be UNDER 2800 characters total.
           Use Slack mrkdwn: *bold*, _italic_, • for bullets
 
           Generate this EXACT structure:
@@ -253,26 +253,23 @@ jobs:
           *📊 Daily Closing — [TODAY's DATE]*
 
           *📈 Today's Activity*
-          [Summarize Jira/Confluence activity in 2-4 concise bullets]
-          [Group similar items, highlight completions]
-          • 💬 Slack: _Ask Cursor IDE for context_
+          [Summarize Jira/Confluence activity in 4-6 concise bullets]
+          [Group similar items, mention specific ticket keys, highlight completions]
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *📋 Task Status*
           P0: [count] | P1: [count]
-          [Brief summary of task progress today]
+          [Brief summary of what moved forward today]
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *💡 Suggested Task Updates*
-          [2-3 specific updates to log based on today's activity]
-          Use: 🟡 in progress, ✅ completed
+          • 🟡 *[Task name]*: _[specific update to log based on activity]_
+          • ✅ *[Task name]*: _[what was completed]_
+          • 🟡 *[Task name]*: _[progress note]_
 
-          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-          _Open Cursor IDE to apply task updates_
-
-          Be CONCISE. Focus on what was accomplished today.
+          Be CONCISE but DETAILED about actual work done today.
           PROMPT_END
           
           TODAY=$(date +'%A, %B %d, %Y')
