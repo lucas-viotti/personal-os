@@ -51,8 +51,8 @@ jobs:
           
           # Build JQL - filter by user if account ID found
           if [ -n "$ACCOUNT_ID" ]; then
-            # Show tickets the user updated OR was assigned to today
-            JQL="project = ${JIRA_PROJECT} AND (updatedBy = '${ACCOUNT_ID}' OR assignee = '${ACCOUNT_ID}') AND updated >= startOfDay() ORDER BY updated DESC"
+            # Show tickets the user updated, is assigned to, or is watching today
+            JQL="project = ${JIRA_PROJECT} AND (updatedBy = '${ACCOUNT_ID}' OR assignee = '${ACCOUNT_ID}' OR watcher = '${ACCOUNT_ID}') AND updated >= startOfDay() ORDER BY updated DESC"
             echo "Filtering by user: $ACCOUNT_ID"
           else
             # Fallback: show all project activity today
