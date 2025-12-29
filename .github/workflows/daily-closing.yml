@@ -1,0 +1,342 @@
+name: Daily Closing
+
+# AI-powered end-of-day summary with activity analysis and update suggestions
+# Customize the schedule, LLM provider, and integrations below
+
+on:
+  schedule:
+    # Default: 5:50 PM UTC (Mon-Fri) - Adjust for your timezone
+    # Examples: EST = 22:50 UTC, PST = 01:50 UTC+1, BRT = 20:50 UTC
+    - cron: '50 17 * * 1-5'
+  workflow_dispatch:  # Allow manual trigger
+
+# =============================================================================
+# CONFIGURATION - Customize these for your setup
+# =============================================================================
+env:
+  # Atlassian Configuration (optional - set to empty to skip)
+  ATLASSIAN_DOMAIN: ""  # e.g., "your-company.atlassian.net"
+  JIRA_PROJECT: ""      # e.g., "PROJ" - your Jira project key
+  CONFLUENCE_SPACES: "" # e.g., "TEAM,DOCS" - comma-separated space keys
+  
+  # LLM Configuration
+  # Supports any OpenAI-compatible API (OpenAI, Azure, Anthropic proxy, local LLMs)
+  LLM_MODEL: "gpt-4"    # Model to use for AI analysis
+
+jobs:
+  daily-closing:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ============================================
+      # STEP 1: GATHER DATA (Modular for extensibility)
+      # ============================================
+      
+      - name: Fetch Jira Activity (Optional)
+        id: jira
+        if: ${{ env.ATLASSIAN_DOMAIN != '' && env.JIRA_PROJECT != '' }}
+        run: |
+          echo "Fetching today's Jira activity..."
+          
+          TODAY=$(date -u +%Y-%m-%d)
+          JQL="project = ${{ env.JIRA_PROJECT }} AND updated >= '$TODAY' AND (assignee = currentUser() OR reporter = currentUser()) ORDER BY updated DESC"
+          JQL_ENCODED=$(echo "$JQL" | jq -sRr @uri)
+          
+          JIRA_RESPONSE=$(curl -s -u "${{ secrets.ATLASSIAN_EMAIL }}:${{ secrets.ATLASSIAN_API_TOKEN }}" \
+            "https://${{ env.ATLASSIAN_DOMAIN }}/rest/api/3/search?jql=${JQL_ENCODED}&maxResults=20&fields=key,summary,status,updated" \
+            2>/dev/null || echo '{"issues":[]}')
+          
+          JIRA_ISSUES=""
+          JIRA_COUNT=$(echo "$JIRA_RESPONSE" | jq -r '.issues | length' 2>/dev/null || echo "0")
+          
+          if [ "$JIRA_COUNT" != "0" ]; then
+            while IFS= read -r line; do
+              KEY=$(echo "$line" | jq -r '.key')
+              SUMMARY=$(echo "$line" | jq -r '.fields.summary')
+              STATUS=$(echo "$line" | jq -r '.fields.status.name')
+              JIRA_ISSUES="${JIRA_ISSUES}• *${KEY}*: ${SUMMARY} [${STATUS}]\n"
+            done < <(echo "$JIRA_RESPONSE" | jq -c '.issues[]')
+          fi
+          
+          if [ -z "$JIRA_ISSUES" ] || [ "$JIRA_COUNT" = "0" ]; then
+            JIRA_ISSUES="_No Jira activity today_"
+          fi
+          
+          echo "jira_data<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$JIRA_ISSUES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "jira_count=$JIRA_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Fetch Confluence Activity (Optional)
+        id: confluence
+        if: ${{ env.ATLASSIAN_DOMAIN != '' && env.CONFLUENCE_SPACES != '' }}
+        run: |
+          echo "Fetching today's Confluence activity..."
+          
+          TODAY=$(date -u +%Y-%m-%d)
+          SPACES="${{ env.CONFLUENCE_SPACES }}"
+          ALL_PAGES=""
+          PAGE_COUNT=0
+          
+          for SPACE in $(echo $SPACES | tr ',' ' '); do
+            RESPONSE=$(curl -s -u "${{ secrets.ATLASSIAN_EMAIL }}:${{ secrets.ATLASSIAN_API_TOKEN }}" \
+              "https://${{ env.ATLASSIAN_DOMAIN }}/wiki/rest/api/content?spaceKey=${SPACE}&expand=history.lastUpdated,version&limit=15&orderby=modified desc" \
+              2>/dev/null || echo '{"results":[]}')
+            
+            USER_EMAIL="${{ secrets.ATLASSIAN_EMAIL }}"
+            PAGES=$(echo "$RESPONSE" | jq -r --arg email "$USER_EMAIL" --arg today "$TODAY" \
+              '.results[]? | select(.history.lastUpdated.when | startswith($today)) | select(.history.lastUpdated.by.email == $email) | "• *\(.title)*"' \
+              2>/dev/null || echo "")
+            
+            if [ -n "$PAGES" ]; then
+              ALL_PAGES="${ALL_PAGES}${PAGES}\n"
+              PAGE_COUNT=$((PAGE_COUNT + $(echo "$PAGES" | grep -c "•" || echo 0)))
+            fi
+          done
+          
+          if [ -z "$ALL_PAGES" ] || [ "$PAGE_COUNT" = "0" ]; then
+            ALL_PAGES="_No Confluence edits today_"
+          fi
+          
+          echo "confluence_data<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$ALL_PAGES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "confluence_count=$PAGE_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Set Default Values for Skipped Steps
+        id: defaults
+        run: |
+          echo "jira_data<<EOF" >> $GITHUB_OUTPUT
+          echo "${JIRA_DATA:-_Jira integration not configured_}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "jira_count=${JIRA_COUNT:-0}" >> $GITHUB_OUTPUT
+          
+          echo "confluence_data<<EOF" >> $GITHUB_OUTPUT
+          echo "${CONFLUENCE_DATA:-_Confluence integration not configured_}" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          echo "confluence_count=${CONFLUENCE_COUNT:-0}" >> $GITHUB_OUTPUT
+        env:
+          JIRA_DATA: ${{ steps.jira.outputs.jira_data }}
+          JIRA_COUNT: ${{ steps.jira.outputs.jira_count }}
+          CONFLUENCE_DATA: ${{ steps.confluence.outputs.confluence_data }}
+          CONFLUENCE_COUNT: ${{ steps.confluence.outputs.confluence_count }}
+
+      - name: Read Current Tasks
+        id: tasks
+        run: |
+          # Count by priority
+          P0_COUNT=$(grep -l "priority: P0" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
+          P1_COUNT=$(grep -l "priority: P1" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
+          BLOCKED_COUNT=$(grep -l "status: b" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
+          
+          # Build task details for AI matching
+          TASK_DETAILS=""
+          for file in Tasks/*.md; do
+            [ -f "$file" ] || continue
+            [ "$(basename "$file")" = "README.md" ] && continue
+            
+            TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
+            PRIORITY=$(grep "^priority:" "$file" | sed 's/priority: //' | head -1)
+            STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+            FILENAME=$(basename "$file")
+            
+            case $STATUS in
+              n) STATUS_TEXT="Not Started" ;;
+              s|ip) STATUS_TEXT="In Progress" ;;
+              b) STATUS_TEXT="Blocked" ;;
+              d) STATUS_TEXT="Done" ;;
+              *) STATUS_TEXT="Unknown" ;;
+            esac
+            
+            TASK_DETAILS="${TASK_DETAILS}- ${FILENAME}: ${TITLE} | Priority: ${PRIORITY} | Status: ${STATUS_TEXT}\n"
+          done
+          
+          # Get P0 tasks for display
+          P0_TASKS=""
+          for file in $(grep -l "priority: P0" Tasks/*.md 2>/dev/null || echo ""); do
+            TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
+            STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+            case $STATUS in
+              n) STATUS_EMOJI="🔴" ;;
+              s|ip) STATUS_EMOJI="🟡" ;;
+              b) STATUS_EMOJI="🟠" ;;
+              d) STATUS_EMOJI="✅" ;;
+              *) STATUS_EMOJI="⚪" ;;
+            esac
+            P0_TASKS="${P0_TASKS}• ${STATUS_EMOJI} ${TITLE}\n"
+          done
+          
+          # Get P1 tasks for display
+          P1_TASKS=""
+          for file in $(grep -l "priority: P1" Tasks/*.md 2>/dev/null || echo ""); do
+            TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
+            STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+            case $STATUS in
+              n) STATUS_EMOJI="🔴" ;;
+              s|ip) STATUS_EMOJI="🟡" ;;
+              b) STATUS_EMOJI="🟠" ;;
+              d) STATUS_EMOJI="✅" ;;
+              *) STATUS_EMOJI="⚪" ;;
+            esac
+            P1_TASKS="${P1_TASKS}• ${STATUS_EMOJI} ${TITLE}\n"
+          done
+          
+          # Outputs
+          echo "p0_count=$P0_COUNT" >> $GITHUB_OUTPUT
+          echo "p1_count=$P1_COUNT" >> $GITHUB_OUTPUT
+          echo "blocked_count=$BLOCKED_COUNT" >> $GITHUB_OUTPUT
+          
+          echo "task_details<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$TASK_DETAILS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "p0_tasks<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$P0_TASKS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "p1_tasks<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$P1_TASKS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      # ============================================
+      # STEP 2: AI ANALYSIS (Optional - requires LLM_API secrets)
+      # ============================================
+      
+      - name: Generate AI Update Suggestions
+        id: ai_analysis
+        if: ${{ secrets.LLM_API_KEY != '' }}
+        run: |
+          CONTEXT="You are a productivity assistant helping someone log their daily progress before ending the workday.
+
+TODAY'S DATE: $(date +'%A, %B %d, %Y')
+
+TODAY'S EXTERNAL ACTIVITY:
+Jira (${{ steps.defaults.outputs.jira_count }} tickets): ${{ steps.defaults.outputs.jira_data }}
+Confluence (${{ steps.defaults.outputs.confluence_count }} pages): ${{ steps.defaults.outputs.confluence_data }}
+
+CURRENT TASK LIST:
+${{ steps.tasks.outputs.task_details }}
+
+Based on this activity, suggest:
+1. *Task Updates to Log*: Which tasks should have progress logged based on today's activity?
+2. *Status Changes*: Should any task statuses be updated (e.g., 'not started' → 'in progress')?
+3. *Missing Tasks*: Is there activity that doesn't seem connected to any existing task?
+
+Keep it concise. Use Slack mrkdwn formatting (bold with *, bullets with •). Focus on what was actually DONE today."
+
+          API_URL="${LLM_API_URL:-https://api.openai.com}"
+          
+          AI_RESPONSE=$(curl -s -X POST "${API_URL}/v1/chat/completions" \
+            -H "Authorization: Bearer ${{ secrets.LLM_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n --arg context "$CONTEXT" --arg model "${{ env.LLM_MODEL }}" '{
+              "model": $model,
+              "messages": [{"role": "user", "content": $context}],
+              "max_tokens": 600,
+              "temperature": 0.7
+            }')" 2>/dev/null || echo '{"choices":[{"message":{"content":"_AI analysis unavailable_"}}]}')
+          
+          AI_SUGGESTIONS=$(echo "$AI_RESPONSE" | jq -r '.choices[0].message.content // "_AI analysis unavailable_"')
+          
+          echo "suggestions<<EOF" >> $GITHUB_OUTPUT
+          echo "$AI_SUGGESTIONS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+        env:
+          LLM_API_URL: ${{ secrets.LLM_API_URL }}
+
+      - name: Set AI Default if Skipped
+        id: ai_defaults
+        run: |
+          if [ -z "$AI_SUGGESTIONS" ]; then
+            echo "suggestions<<EOF" >> $GITHUB_OUTPUT
+            echo "_AI analysis not configured. Add LLM_API_KEY secret to enable._" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "suggestions<<EOF" >> $GITHUB_OUTPUT
+            echo "$AI_SUGGESTIONS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+        env:
+          AI_SUGGESTIONS: ${{ steps.ai_analysis.outputs.suggestions }}
+
+      # ============================================
+      # STEP 3: POST TO SLACK
+      # ============================================
+      
+      - name: Build Slack Message
+        id: report
+        run: |
+          REPORT="*🌆 Daily Closing — $(date +'%A, %B %d, %Y')*\n\n"
+          
+          # Today's Activity Summary
+          REPORT+="*📊 Today's Activity*\n"
+          REPORT+="• 📋 Jira tickets: *${{ steps.defaults.outputs.jira_count }}*\n"
+          REPORT+="• 📝 Confluence pages: *${{ steps.defaults.outputs.confluence_count }}*\n\n"
+          
+          # External Activity (if configured)
+          if [ "${{ steps.defaults.outputs.jira_count }}" -gt 0 ]; then
+            REPORT+="*📋 Jira Activity*\n"
+            REPORT+="${{ steps.defaults.outputs.jira_data }}\n"
+          fi
+          
+          if [ "${{ steps.defaults.outputs.confluence_count }}" -gt 0 ]; then
+            REPORT+="*📝 Confluence Edits*\n"
+            REPORT+="${{ steps.defaults.outputs.confluence_data }}\n"
+          fi
+          
+          REPORT+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+          
+          # P0/P1 Tasks Status
+          REPORT+="*🚨 P0 Tasks* (${{ steps.tasks.outputs.p0_count }})\n"
+          if [ "${{ steps.tasks.outputs.p0_count }}" -gt 0 ]; then
+            REPORT+="${{ steps.tasks.outputs.p0_tasks }}"
+          else
+            REPORT+="_No P0 tasks_\n"
+          fi
+          REPORT+="\n"
+          
+          REPORT+="*⚡ P1 Tasks* (${{ steps.tasks.outputs.p1_count }})\n"
+          if [ "${{ steps.tasks.outputs.p1_count }}" -gt 0 ]; then
+            REPORT+="${{ steps.tasks.outputs.p1_tasks }}"
+          else
+            REPORT+="_No P1 tasks_\n"
+          fi
+          REPORT+="\n"
+          
+          REPORT+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+          
+          # AI Suggestions
+          REPORT+="*💡 Suggested Task Updates*\n"
+          REPORT+="${{ steps.ai_defaults.outputs.suggestions }}\n\n"
+          
+          REPORT+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+          REPORT+="_Open your AI assistant to apply updates, or say \"nothing changed\"_"
+          
+          echo "report<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$REPORT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Send to Slack
+        if: ${{ secrets.SLACK_BOT_TOKEN != '' }}
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
+          payload: |
+            {
+              "text": "Daily Closing",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ${{ toJSON(steps.report.outputs.report) }}
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+

@@ -1,10 +1,10 @@
 # PersonalOS (Enhanced Fork)
 
-> AI-powered task management with **automated Slack notifications** and **task archiving**
+> AI-powered task management with **automated Slack notifications**, **AI-driven insights**, and **task archiving**
 
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
-This is an enhanced fork of [amanaiproduct/personal-os](https://github.com/amanaiproduct/personal-os) with additional features for **automated daily/weekly reviews** and **task lifecycle management**.
+This is an enhanced fork of [amanaiproduct/personal-os](https://github.com/amanaiproduct/personal-os) with additional features for **AI-powered daily briefings**, **automated weekly reviews**, and **task lifecycle management**.
 
 ---
 
@@ -12,10 +12,12 @@ This is an enhanced fork of [amanaiproduct/personal-os](https://github.com/amana
 
 | Feature | Description |
 |---------|-------------|
-| 📬 **Daily Slack Reports** | Automated task summaries sent to Slack every workday |
-| 📋 **Weekly Reviews** | Comprehensive weekly digest with reflection prompts |
+| ☀️ **Daily Briefing** | Morning focus recommendations with AI-powered suggestions |
+| 🌆 **Daily Closing** | End-of-day activity summary with smart task update suggestions |
+| 📋 **Weekly Reviews** | Comprehensive weekly digest with AI insights and reflection prompts |
 | 🗂️ **Task Archiving** | Move completed tasks to organized monthly archives |
-| 🔄 **GitHub Actions** | Fully automated, no manual triggers needed |
+| 🤖 **AI Integration** | Works with any OpenAI-compatible LLM API |
+| 🔗 **Atlassian Integration** | Optional Jira & Confluence activity tracking |
 
 ---
 
@@ -29,16 +31,30 @@ cd personal-os
 ./setup.sh
 ```
 
-### 2. Configure Slack Integration (Optional)
+### 2. Configure Integrations (All Optional)
 
-To receive automated reports in Slack:
-
-1. **Create a Slack App** at [api.slack.com/apps](https://api.slack.com/apps)
-2. Add Bot Token Scopes: `chat:write`, `chat:write.public`
+#### Slack Notifications
+1. Create a Slack App at [api.slack.com/apps](https://api.slack.com/apps)
+2. Add Bot Token Scopes: `chat:write`, `im:write`
 3. Install to your workspace and copy the Bot Token
 4. Add GitHub Secrets:
    - `SLACK_BOT_TOKEN`: Your bot token (starts with `xoxb-`)
-   - `SLACK_CHANNEL_ID`: Target channel ID (e.g., `C01ABCD1234`)
+   - `SLACK_CHANNEL_ID`: Target channel/DM ID
+
+#### AI-Powered Analysis
+Works with any OpenAI-compatible API (OpenAI, Azure OpenAI, Anthropic via proxy, local LLMs like Ollama):
+- `LLM_API_KEY`: Your API key
+- `LLM_API_URL`: (Optional) API endpoint URL (defaults to OpenAI)
+
+#### Atlassian Integration (Jira & Confluence)
+1. Create an API token at [id.atlassian.com](https://id.atlassian.com/manage-profile/security/api-tokens)
+2. Add GitHub Secrets:
+   - `ATLASSIAN_EMAIL`: Your Atlassian email
+   - `ATLASSIAN_API_TOKEN`: Your API token
+3. Configure in workflow files:
+   - `ATLASSIAN_DOMAIN`: e.g., `your-company.atlassian.net`
+   - `JIRA_PROJECT`: e.g., `PROJ`
+   - `CONFLUENCE_SPACES`: e.g., `TEAM,DOCS`
 
 ### 3. Start Using It
 
@@ -51,37 +67,96 @@ To receive automated reports in Slack:
 
 ## 📬 Automated Slack Reports
 
-### Daily Check (Monday-Friday)
+### ☀️ Daily Briefing (Morning)
 
-Receive a daily summary at end of workday:
+Start your day with focus recommendations:
 
 ```
-🌅 Daily Task Check — January 15, 2025
+☀️ Daily Briefing — January 15, 2025
 
-📊 Task Summary
-| Status | Count |
-|--------|-------|
-| 🔴 Not Started | 3 |
-| 🟡 In Progress | 5 |
-| 🟠 Blocked | 1 |
+📊 Today's Focus
+• 🚨 P0 (Do Today): 2
+• ⚡ P1 (This Week): 5
+• 🟠 Blocked: 1
 
 🚨 P0 Tasks (Do Today)
-- 🟡 Complete quarterly report
-- 🔴 Review PR feedback
+• 🟡 Complete quarterly report
+• 🔴 Review PR feedback
 
-⚡ P1 Tasks (This Week)
-- 🟡 Update documentation
-- 🔴 Schedule team sync
+💡 AI Focus Recommendation
+Based on your priorities and recent activity, focus on completing
+the quarterly report first—it's been in progress for 3 days. 
+The PR feedback review can be done in the afternoon after 
+your 2pm meeting.
 ```
 
-### Weekly Review (Fridays)
+### 🌆 Daily Closing (End of Day)
 
-Comprehensive weekly digest with:
-- Task status overview
-- Activity metrics (commits, files modified)
-- Blocked tasks requiring attention
-- Tasks ready to archive
-- Reflection prompts
+Log what you accomplished:
+
+```
+🌆 Daily Closing — January 15, 2025
+
+📊 Today's Activity
+• 📋 Jira tickets: 4
+• 📝 Confluence pages: 2
+
+📋 Jira Activity
+• PROJ-123: Updated sprint planning docs [Done]
+• PROJ-124: Fixed login bug [In Review]
+
+💡 Suggested Task Updates
+1. Task "Sprint planning" — You edited the planning doc today.
+   Consider updating status from 🔴 to 🟡 in progress.
+2. Task "Bug fixes" — PROJ-124 is in review. Log progress?
+```
+
+### 📋 Weekly Review (Fridays)
+
+Reflect on your week with AI insights:
+
+```
+📋 Weekly Review — Week of January 15, 2025
+
+📊 This Week's Activity
+• 📋 Jira: 12 touched, 5 resolved
+• 📝 Confluence: 8 pages edited
+• 📁 Task commits: 15
+
+📈 Task Overview
+• 🚨 P0 (Critical): 2
+• ⚡ P1 (This Week): 5
+• 🟠 Blocked: 1
+• ✅ Done: 3
+
+💡 AI Weekly Insights
+Great progress this week! You resolved 5 Jira tickets and made
+significant documentation updates. Consider archiving the 3 
+completed tasks. The blocked "API integration" task has been 
+stuck for 5 days—schedule time to unblock it next week.
+```
+
+---
+
+## ⏰ Schedule Customization
+
+Edit the cron schedules in `.github/workflows/`:
+
+| Workflow | Default Schedule | File |
+|----------|------------------|------|
+| Daily Briefing | 8:30 AM UTC | `daily-briefing.yml` |
+| Daily Closing | 5:50 PM UTC | `daily-closing.yml` |
+| Weekly Review | Friday 3:00 PM UTC | `weekly-review.yml` |
+
+### Common Timezone Conversions
+
+| Your Timezone | Briefing (8:30 AM local) | Closing (5:50 PM local) |
+|---------------|--------------------------|-------------------------|
+| **EST (UTC-5)** | `30 13 * * 1-5` | `50 22 * * 1-5` |
+| **PST (UTC-8)** | `30 16 * * 1-5` | `50 1 * * 2-6` |
+| **BRT (UTC-3)** | `30 11 * * 1-5` | `50 20 * * 1-5` |
+| **CET (UTC+1)** | `30 7 * * 1-5` | `50 16 * * 1-5` |
+| **JST (UTC+9)** | `30 23 * * 0-4` | `50 8 * * 1-5` |
 
 ---
 
@@ -105,20 +180,50 @@ Archive/
 
 ---
 
+## 🔧 Configuration Reference
+
+### GitHub Secrets
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `SLACK_BOT_TOKEN` | For Slack | Bot token from Slack app |
+| `SLACK_CHANNEL_ID` | For Slack | Target channel or DM ID |
+| `LLM_API_KEY` | For AI | API key for LLM provider |
+| `LLM_API_URL` | Optional | Custom API endpoint (default: OpenAI) |
+| `ATLASSIAN_EMAIL` | For Jira/Confluence | Your Atlassian email |
+| `ATLASSIAN_API_TOKEN` | For Jira/Confluence | API token from Atlassian |
+
+### Workflow Environment Variables
+
+Edit in `.github/workflows/*.yml`:
+
+```yaml
+env:
+  # Atlassian (optional)
+  ATLASSIAN_DOMAIN: "your-company.atlassian.net"
+  JIRA_PROJECT: "PROJ"
+  CONFLUENCE_SPACES: "TEAM,DOCS"
+  
+  # LLM Model
+  LLM_MODEL: "gpt-4"  # or "gpt-3.5-turbo", "claude-3-opus", etc.
+```
+
+---
+
 ## 📁 Directory Structure
 
 ```
 personal-os/
 ├── .github/
 │   └── workflows/
-│       ├── daily-check.yml      # 🆕 Daily Slack reports
-│       └── weekly-review.yml    # 🆕 Weekly Slack digest
+│       ├── daily-briefing.yml   # ☀️ Morning focus
+│       ├── daily-closing.yml    # 🌆 EOD summary
+│       └── weekly-review.yml    # 📋 Weekly reflection
 ├── Tasks/                       # Active tasks
-├── Archive/                     # 🆕 Completed tasks by month
+├── Archive/                     # Completed tasks by month
 ├── Knowledge/                   # Reference docs & notes
 ├── examples/
-│   └── workflows/
-│       └── archive-tasks.md     # 🆕 Archive workflow docs
+│   └── workflows/               # Workflow documentation
 ├── BACKLOG.md                   # Quick capture inbox
 ├── GOALS.md                     # Your goals & priorities
 ├── AGENTS.md                    # AI assistant instructions
@@ -127,26 +232,20 @@ personal-os/
 
 ---
 
-## 🔧 Customization
+## 🔄 Upgrade Path
 
-### Adjust Notification Schedule
+This fork is designed for extensibility:
 
-Edit `.github/workflows/daily-check.yml`:
+### Current (Option 1): Context Injection
+- Gathers data from configured sources
+- Sends to LLM in a single prompt
+- Fast, predictable, low-cost (~$0.02/run)
 
-```yaml
-schedule:
-  # 6:00 PM EST = 23:00 UTC
-  - cron: '0 23 * * 1-5'
-```
-
-### Common Timezones
-
-| Timezone | Cron (6 PM) |
-|----------|-------------|
-| EST | `0 23 * * 1-5` |
-| PST | `0 2 * * 2-6` |
-| BRT | `0 21 * * 1-5` |
-| UTC | `0 18 * * 1-5` |
+### Future (Option 2): Agentic Mode
+The modular architecture supports upgrading to agentic workflows where:
+- LLM can request additional data dynamically
+- Multi-step reasoning for complex analysis
+- Function calling for automated task updates
 
 ---
 
