@@ -273,6 +273,22 @@ jobs:
       # STEP 2: AI ANALYSIS
       # ============================================
       
+      - name: Read Prioritization Rules
+        id: priorities
+        run: |
+          # Read custom prioritization rules if file exists
+          if [ -f "Knowledge/prioritization-rules.md" ]; then
+            RULES=$(cat Knowledge/prioritization-rules.md)
+            echo "Found prioritization rules file"
+          else
+            RULES="Default: Prioritize by 1) Deadlines 2) Blocking others 3) Goal alignment 4) Quick wins"
+            echo "Using default prioritization rules"
+          fi
+          
+          echo "rules<<EOF" >> $GITHUB_OUTPUT
+          echo "$RULES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
       - name: Generate AI Summary and Recommendations
         id: ai_analysis
         continue-on-error: true
@@ -292,6 +308,7 @@ jobs:
           JIRA_COUNT: ${{ steps.jira.outputs.jira_count }}
           CONFLUENCE_DATA: ${{ steps.confluence.outputs.confluence_data }}
           CONFLUENCE_COUNT: ${{ steps.confluence.outputs.confluence_count }}
+          PRIORITIZATION_RULES: ${{ steps.priorities.outputs.rules }}
         run: |
           MODEL="${LLM_MODEL_SECRET:-${{ env.LLM_MODEL }}}"
           
@@ -329,24 +346,25 @@ jobs:
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *💡 AI Focus Recommendation*
-          Based on your current priorities and recent activity, here's what to focus on:
+          Based on the PRIORITIZATION RULES provided, here's what to focus on:
 
           • 🔴 *[P0 Task name]*
-          _[2-3 sentences explaining WHY this is critical today. Reference specific context, deadlines, dependencies, or stakeholder needs. Be specific to this task.]_
+          _[2-3 sentences explaining WHY this is prioritized based on the rules. Reference the specific criteria (deadline, blocking others, goal alignment, etc.)]_
 
           • 🟡 *[P1 Task name]*
-          _[2-3 sentences explaining the importance and what progress to make. Reference related Jira tickets or Confluence pages if relevant.]_
+          _[2-3 sentences explaining the priority reasoning based on the rules. Reference related Jira tickets or Confluence pages if relevant.]_
 
           • 🟡 *[Another task]*
-          _[2-3 sentences with specific reasoning based on task context and activity.]_
+          _[2-3 sentences with reasoning tied to the prioritization criteria.]_
 
           _📊 See thread for detailed activity (Jira & Confluence) →_
 
-          TASK FORMAT RULES:
+          RULES:
           - Status headers: *🔴 Not started* and *🟡 In Progress* as bold headers
           - Task bullets: NO emoji, just • [task name]
           - Skip empty status groups entirely
-          - Focus Recommendation: Give DETAILED reasoning (2-3 sentences each), not one-liners
+          - Focus Recommendation: Apply PRIORITIZATION RULES to select and explain task priority (2-3 sentences each)
+          - Explicitly mention which prioritization criteria applies to each recommended task
           PROMPT_END
           
           TODAY=$(date +'%A, %B %d, %Y')
@@ -374,7 +392,10 @@ jobs:
           $CONFLUENCE_DATA
 
           TASK CONTEXT FOR RECOMMENDATIONS:
-          $TASK_DETAILS"
+          $TASK_DETAILS
+          
+          PRIORITIZATION RULES (use these to decide which tasks to recommend):
+          $PRIORITIZATION_RULES"
 
           API_URL="${LLM_API_URL:-https://api.openai.com}"
           
