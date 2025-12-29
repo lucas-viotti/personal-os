@@ -139,7 +139,7 @@ Want the best of both worlds? Run **GitHub Actions** for the main report (visibl
 ```
 8:30 AM  │  GitHub Actions runs → Posts Daily Briefing to Slack
          │
-8:35 AM  │  Local enrichment runs → Replies to the SAME thread with:
+8:32 AM  │  Local enrichment runs → Replies to the SAME thread with:
          │  • Slack activity summary (if user token available)
          │  • Prompt to engage @Cursor for full Slack analysis
 ```
@@ -158,7 +158,7 @@ This keeps everything in **one clean thread**:
 ```
 📨 Logbook (8:30 AM)
 └── ☀️ Daily Briefing — Monday, December 29, 2025
-    └── 💬 Slack Context (8:35 AM)
+    └── 💬 Slack Context (8:32 AM)
         └── Reply @Cursor to analyze your Slack activity
 ```
 

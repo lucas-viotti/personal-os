@@ -18,11 +18,11 @@
     
     <key>StartCalendarInterval</key>
     <dict>
-        <!-- Run at 5:55 PM Mon-Fri (5 min after GitHub Action) -->
+        <!-- Run at 5:52 PM Mon-Fri (2 min after GitHub Action) -->
         <key>Hour</key>
         <integer>17</integer>
         <key>Minute</key>
-        <integer>55</integer>
+        <integer>52</integer>
     </dict>
     
     <key>StandardOutPath</key>

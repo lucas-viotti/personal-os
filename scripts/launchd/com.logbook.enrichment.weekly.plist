@@ -18,13 +18,13 @@
     
     <key>StartCalendarInterval</key>
     <dict>
-        <!-- Run at 3:05 PM on Fridays (5 min after GitHub Action) -->
+        <!-- Run at 3:02 PM on Fridays (2 min after GitHub Action) -->
         <key>Weekday</key>
         <integer>5</integer>
         <key>Hour</key>
         <integer>15</integer>
         <key>Minute</key>
-        <integer>5</integer>
+        <integer>2</integer>
     </dict>
     
     <key>StandardOutPath</key>
