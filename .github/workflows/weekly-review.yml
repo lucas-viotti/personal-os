@@ -239,6 +239,11 @@ jobs:
           Provide a brief weekly reflection covering key accomplishments, attention needed,
           next week focus, and housekeeping items.
           Keep it concise and motivating. Use Slack mrkdwn formatting (bold with *, bullets with •).
+          When listing tasks, use emoji circles to indicate status:
+          • 🔴 for not started tasks
+          • 🟡 for in progress tasks
+          • 🟠 for blocked tasks
+          Do NOT add text labels like "(P0 NOT STARTED)" - just use the emoji prefix.
           PROMPT_END
           
           PROMPT="$PROMPT

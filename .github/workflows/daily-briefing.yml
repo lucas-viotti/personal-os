@@ -216,6 +216,11 @@ jobs:
           Based on the context below, provide a brief 2-3 sentence focus recommendation,
           identify tasks needing attention, and flag potential blockers.
           Keep it concise. Use Slack mrkdwn formatting (bold with *, bullets with •).
+          When listing tasks needing attention, use emoji circles to indicate status:
+          • 🔴 for not started tasks
+          • 🟡 for in progress tasks
+          • 🟠 for blocked tasks
+          Do NOT add text labels like "(P0 NOT STARTED)" - just use the emoji prefix.
           PROMPT_END
           
           # Append dynamic context

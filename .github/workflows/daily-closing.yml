@@ -214,6 +214,11 @@ jobs:
           Based on today's activity, suggest task updates to log, status changes needed,
           and any activity not connected to existing tasks.
           Keep it concise. Use Slack mrkdwn formatting (bold with *, bullets with •).
+          When listing tasks, use emoji circles to indicate status:
+          • 🔴 for not started tasks
+          • 🟡 for in progress tasks
+          • 🟠 for blocked tasks
+          Do NOT add text labels like "(P0 NOT STARTED)" - just use the emoji prefix.
           PROMPT_END
           
           PROMPT="$PROMPT
