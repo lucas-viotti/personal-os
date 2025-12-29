@@ -11,6 +11,7 @@ BACKLOG.md
 Knowledge/*.md
 !Knowledge/.gitkeep
 !Knowledge/README.md
+!Knowledge/prioritization-rules.md
 
 # Personal configuration
 CLAUDE.md       # If customized from template
