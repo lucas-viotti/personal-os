@@ -45,20 +45,44 @@ jobs:
           
           echo "Fetching weekly Jira activity..."
           
-          WEEK_AGO=$(date -u -d '7 days ago' +%Y-%m-%d 2>/dev/null || date -u -v-7d +%Y-%m-%d)
+          # Use new Jira API endpoint (POST /rest/api/3/search/jql)
+          # Old /rest/api/3/search was deprecated and removed (HTTP 410)
+          JQL="project = ${JIRA_PROJECT} AND updated >= -7d ORDER BY updated DESC"
           
-          # Get all touched tickets
-          JQL="project = ${JIRA_PROJECT} AND updated >= '${WEEK_AGO}' ORDER BY updated DESC"
-          JQL_ENCODED=$(echo "$JQL" | jq -sRr @uri)
+          echo "JQL: $JQL"
           
-          JIRA_RESPONSE=$(curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
-            "https://${ATLASSIAN_DOMAIN}/rest/api/3/search?jql=${JQL_ENCODED}&maxResults=50&fields=key,summary,status,updated,resolution" \
-            2>/dev/null || echo '{"issues":[]}')
+          # Create JSON payload for POST request
+          JSON_PAYLOAD=$(jq -n \
+            --arg jql "$JQL" \
+            '{
+              "jql": $jql,
+              "maxResults": 50,
+              "fields": ["key", "summary", "status", "updated", "resolution"]
+            }')
           
-          JIRA_COUNT=$(echo "$JIRA_RESPONSE" | jq -r '.issues | length' 2>/dev/null || echo "0")
-          RESOLVED_COUNT=$(echo "$JIRA_RESPONSE" | jq -r '[.issues[]? | select(.fields.resolution != null)] | length' 2>/dev/null || echo "0")
+          JIRA_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" \
+            -X POST \
+            -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "https://${ATLASSIAN_DOMAIN}/rest/api/3/search/jql" \
+            -d "$JSON_PAYLOAD")
           
-          JIRA_ISSUES=$(echo "$JIRA_RESPONSE" | jq -r '.issues[]? | "• \(.key): \(.fields.summary) [\(.fields.status.name)]"' 2>/dev/null || echo "")
+          HTTP_CODE=$(echo "$JIRA_RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+          RESPONSE_BODY=$(echo "$JIRA_RESPONSE" | grep -v "HTTP_CODE:")
+          
+          echo "HTTP Code: $HTTP_CODE"
+          
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "Jira API error: HTTP $HTTP_CODE"
+            RESPONSE_BODY='{"issues":[]}'
+          fi
+          
+          JIRA_COUNT=$(echo "$RESPONSE_BODY" | jq -r '.issues | length' 2>/dev/null || echo "0")
+          RESOLVED_COUNT=$(echo "$RESPONSE_BODY" | jq -r '[.issues[]? | select(.fields.resolution != null)] | length' 2>/dev/null || echo "0")
+          
+          JIRA_ISSUES=$(echo "$RESPONSE_BODY" | jq -r '.issues[]? | "• \(.key): \(.fields.summary) [\(.fields.status.name)]"' 2>/dev/null || echo "")
+          
+          echo "Found $JIRA_COUNT issues ($RESOLVED_COUNT resolved)"
           
           if [ -z "$JIRA_ISSUES" ] || [ "$JIRA_COUNT" = "0" ]; then
             JIRA_ISSUES="_No Jira activity this week_"

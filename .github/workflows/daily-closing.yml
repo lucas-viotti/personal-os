@@ -41,43 +41,41 @@ jobs:
           fi
           
           echo "Fetching today's Jira activity from $ATLASSIAN_DOMAIN..."
-          echo "User email: $ATLASSIAN_EMAIL"
           
-          # Use email directly in JQL - this is the most reliable approach
-          JQL="project = ${JIRA_PROJECT} AND (assignee = \"${ATLASSIAN_EMAIL}\" OR reporter = \"${ATLASSIAN_EMAIL}\" OR watcher = \"${ATLASSIAN_EMAIL}\" OR creator = \"${ATLASSIAN_EMAIL}\") AND updated >= startOfDay() ORDER BY updated DESC"
+          # Use new Jira API endpoint (POST /rest/api/3/search/jql)
+          # Old /rest/api/3/search was deprecated and removed (HTTP 410)
+          JQL="project = ${JIRA_PROJECT} AND updated >= startOfDay() ORDER BY updated DESC"
           
           echo "JQL: $JQL"
-          JQL_ENCODED=$(echo "$JQL" | jq -sRr @uri)
           
-          echo "Encoded JQL: $JQL_ENCODED"
+          # Create JSON payload for POST request
+          JSON_PAYLOAD=$(jq -n \
+            --arg jql "$JQL" \
+            '{
+              "jql": $jql,
+              "maxResults": 30,
+              "fields": ["key", "summary", "status", "assignee", "updated"]
+            }')
           
-          JIRA_RESPONSE=$(curl -s -w "\n%{http_code}" -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
-            "https://${ATLASSIAN_DOMAIN}/rest/api/3/search?jql=${JQL_ENCODED}&maxResults=30&fields=key,summary,status,updated")
+          JIRA_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" \
+            -X POST \
+            -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "https://${ATLASSIAN_DOMAIN}/rest/api/3/search/jql" \
+            -d "$JSON_PAYLOAD")
           
           # Extract HTTP code and response body
-          HTTP_CODE=$(echo "$JIRA_RESPONSE" | tail -1)
-          RESPONSE_BODY=$(echo "$JIRA_RESPONSE" | sed '$d')
+          HTTP_CODE=$(echo "$JIRA_RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+          RESPONSE_BODY=$(echo "$JIRA_RESPONSE" | grep -v "HTTP_CODE:")
           
           echo "HTTP Code: $HTTP_CODE"
-          echo "Response Body: $RESPONSE_BODY"
+          echo "Response: ${RESPONSE_BODY:0:500}"
           
-          # Check HTTP status
           if [ "$HTTP_CODE" != "200" ]; then
-            echo "HTTP Error: $HTTP_CODE"
-            echo "Falling back to project-wide query..."
-            JQL="project = ${JIRA_PROJECT} AND updated >= startOfDay() ORDER BY updated DESC"
-            JQL_ENCODED=$(echo "$JQL" | jq -sRr @uri)
-            JIRA_RESPONSE=$(curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
-              "https://${ATLASSIAN_DOMAIN}/rest/api/3/search?jql=${JQL_ENCODED}&maxResults=30&fields=key,summary,status,updated")
-            RESPONSE_BODY="$JIRA_RESPONSE"
-            echo "Fallback Response: $RESPONSE_BODY"
-          fi
-          
-          # Check for JQL errors
-          ERROR_MSG=$(echo "$RESPONSE_BODY" | jq -r '.errorMessages[0] // empty' 2>/dev/null)
-          if [ -n "$ERROR_MSG" ]; then
-            echo "JQL Error: $ERROR_MSG"
-            RESPONSE_BODY='{"issues":[]}'
+            echo "Jira API error: HTTP $HTTP_CODE"
+            echo "jira_data=_Jira API error_" >> $GITHUB_OUTPUT
+            echo "jira_count=0" >> $GITHUB_OUTPUT
+            exit 0
           fi
           
           JIRA_COUNT=$(echo "$RESPONSE_BODY" | jq -r '.issues | length' 2>/dev/null || echo "0")
