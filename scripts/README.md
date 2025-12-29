@@ -5,7 +5,7 @@ This folder contains a **local script alternative** to the GitHub Actions workfl
 - Need **full Slack access** via MCP OAuth (company restrictions on user tokens)
 - Want to run reports while connected to **VPN/internal networks**
 - Prefer keeping credentials **on your machine** instead of GitHub Secrets
-- Have a **Slack MCP** setup (like Nubank's internal slack-mcp-server)
+- Have a **Slack MCP** setup (company's internal MCP server with OAuth)
 
 ## 📊 Comparison: GitHub Actions vs Local Script
 
@@ -88,9 +88,9 @@ SLACK_USER_TOKEN=xoxp-your-user-token
 SLACK_MCP_TOKEN_PATH=~/.slack-mcp/token.json
 ```
 
-## 🔗 Slack MCP Integration (Nubank)
+## 🔗 Slack MCP Integration
 
-If you have access to a Slack MCP server (like Nubank's internal `slack-mcp-server`), you can leverage its OAuth token for full Slack access:
+If you have access to a Slack MCP server (your company's internal MCP with OAuth), you can leverage its token for full Slack access:
 
 ### Option A: Token File Path
 
