@@ -315,7 +315,7 @@ jobs:
           REPORT+="*📈 This Week's Activity*\n"
           REPORT+="• 📋 Jira: *${JIRA_COUNT:-0}* touched, *${RESOLVED_COUNT:-0}* resolved\n"
           REPORT+="• 📝 Confluence: *${CONFLUENCE_COUNT:-0}* pages edited\n"
-          REPORT+="• 💬 Slack: _Reply @Cursor for context_\n"
+          REPORT+="• 💬 Slack: _Ask Cursor IDE for context_\n"
           REPORT+="• 📁 Task commits: *${COMMITS_COUNT:-0}*\n\n"
           
           # Task Overview
@@ -350,7 +350,7 @@ jobs:
           REPORT+="${AI_SUGGESTIONS:-_AI analysis not available_}\n\n"
           
           REPORT+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-          REPORT+="_Reply @Cursor for full interactive weekly reflection_"
+          REPORT+="_Open Cursor IDE for full interactive weekly reflection_"
           
           echo "report<<EOF" >> $GITHUB_OUTPUT
           echo -e "$REPORT" >> $GITHUB_OUTPUT

@@ -395,7 +395,7 @@ jobs:
           else
             REPORT+="• 📝 Confluence: _No activity_\n"
           fi
-          REPORT+="• 💬 Slack: _Reply @Cursor for context_\n\n"
+          REPORT+="• 💬 Slack: _Ask Cursor IDE for context_\n\n"
           
           REPORT+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
           
@@ -404,7 +404,7 @@ jobs:
           REPORT+="${AI_SUGGESTIONS:-_AI analysis not available_}\n\n"
           
           REPORT+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-          REPORT+="_Reply @Cursor to engage with an agent to apply updates_"
+          REPORT+="_Open Cursor IDE to analyze Slack activity or apply task updates_"
           
           echo "report<<EOF" >> $GITHUB_OUTPUT
           echo -e "$REPORT" >> $GITHUB_OUTPUT
