@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.logbook.briefing</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>REPO_PATH/scripts/logbook-local.py</string>
+        <string>briefing</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>REPO_PATH</string>
+    
+    <key>StartCalendarInterval</key>
+    <dict>
+        <!-- 8:30 AM Monday-Friday -->
+        <key>Hour</key>
+        <integer>8</integer>
+        <key>Minute</key>
+        <integer>30</integer>
+    </dict>
+    
+    <key>StandardOutPath</key>
+    <string>REPO_PATH/logs/briefing.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>REPO_PATH/logs/briefing.error.log</string>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
+
