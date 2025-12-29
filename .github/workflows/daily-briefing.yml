@@ -83,19 +83,30 @@ jobs:
           
           JIRA_COUNT=$(echo "$RESPONSE_BODY" | jq -r '.issues | length' 2>/dev/null || echo "0")
           
-          # Get full issue list for AI to summarize (key, summary, status)
+          # Get issue list for AI to summarize (key, summary, status)
           JIRA_RAW=$(echo "$RESPONSE_BODY" | jq -r '.issues[]? | "\(.key): \(.fields.summary) [\(.fields.status.name)]"' 2>/dev/null || echo "")
+          
+          # Create formatted version with Slack hyperlinks for thread
+          JIRA_LINKED=$(echo "$RESPONSE_BODY" | jq -r --arg domain "$ATLASSIAN_DOMAIN" \
+            '.issues[]? | "• <https://\($domain)/browse/\(.key)|\(.key)>: \(.fields.summary | if length > 60 then .[:57] + "..." else . end) [\(.fields.status.name)]"' 2>/dev/null || echo "")
           
           echo "Found $JIRA_COUNT issues"
           
           if [ -z "$JIRA_RAW" ] || [ "$JIRA_COUNT" = "0" ]; then
             JIRA_RAW="_No Jira activity in the last 24h_"
+            JIRA_LINKED="_No Jira activity in the last 24h_"
           fi
           
           # Output raw data for AI to summarize
           echo "jira_raw<<EOF" >> $GITHUB_OUTPUT
           echo "$JIRA_RAW" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+          
+          # Output linked version for thread
+          echo "jira_linked<<EOF" >> $GITHUB_OUTPUT
+          echo "$JIRA_LINKED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
           echo "jira_count=$JIRA_COUNT" >> $GITHUB_OUTPUT
 
       - name: Fetch Confluence Activity
@@ -289,11 +300,12 @@ jobs:
             exit 0
           fi
           
-          # Build comprehensive prompt for AI to generate the ENTIRE Slack message
+          # Build prompt for main message (Tasks + Focus Recommendations)
+          # Recent Activity with links will be posted as a thread reply
           read -r -d '' PROMPT << 'PROMPT_END' || true
-          You are a productivity assistant. Generate a complete Slack daily briefing.
+          You are a productivity assistant. Generate a Slack daily briefing.
 
-          CRITICAL: Output must be UNDER 2800 characters total.
+          CRITICAL: Output must be UNDER 2500 characters total.
           Use Slack mrkdwn: *bold*, _italic_, • for bullets
 
           Generate this EXACT structure (follow formatting precisely):
@@ -303,36 +315,38 @@ jobs:
           *🚨 P0 Tasks (Do Today):* [count]
           *🔴 Not started*
           • [task name - truncate if over 50 chars]
-          • [task name]
           *🟡 In Progress*
           • [task name]
 
           *⚡ P1 Tasks (This Week):* [count]
           *🔴 Not started*
           • [task name]
+          • [task name]
           *🟡 In Progress*
           • [task name]
           • [task name]
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-          *📊 Recent Activity (24h)*
-          [Intelligently summarize Jira activity in 3-5 bullets - group similar items, mention specific ticket keys]
-          [Mention Confluence if any activity]
-
-          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
           *💡 AI Focus Recommendation*
-          • 🔴 *[Task name]*: _[1-line reason why this matters]_
-          • 🟡 *[Task name]*: _[1-line reason]_
-          • 🟡 *[Task name]*: _[1-line reason]_
+          Based on your current priorities and recent Jira activity, here's what to focus on:
 
-          IMPORTANT TASK FORMAT RULES:
-          - Group tasks by status with HEADER then list (NOT emoji per line)
-          - Status headers: *🔴 Not started* and *🟡 In Progress* (as bold headers)
-          - Task bullets have NO emoji, just • [task name]
-          - Only show status headers that have tasks
-          - Skip empty groups entirely
+          • 🔴 *[P0 Task name]*
+          _[2-3 sentences explaining WHY this is critical today. Reference specific context, deadlines, dependencies, or stakeholder needs. Be specific to this task.]_
+
+          • 🟡 *[P1 Task name]*
+          _[2-3 sentences explaining the importance and what progress to make. Reference related Jira tickets if relevant.]_
+
+          • 🟡 *[Another task]*
+          _[2-3 sentences with specific reasoning based on task context and activity.]_
+
+          _📊 See thread for detailed Jira activity →_
+
+          TASK FORMAT RULES:
+          - Status headers: *🔴 Not started* and *🟡 In Progress* as bold headers
+          - Task bullets: NO emoji, just • [task name]
+          - Skip empty status groups entirely
+          - Focus Recommendation: Give DETAILED reasoning (2-3 sentences each), not one-liners
           PROMPT_END
           
           TODAY=$(date +'%A, %B %d, %Y')
@@ -401,25 +415,43 @@ jobs:
       # STEP 3: BUILD AND SEND REPORT
       # ============================================
       
-      - name: Build Slack Message
+      - name: Build Slack Messages
         id: report
         env:
           FULL_REPORT: ${{ steps.ai_analysis.outputs.full_report }}
+          JIRA_LINKED: ${{ steps.jira.outputs.jira_linked }}
+          JIRA_COUNT: ${{ steps.jira.outputs.jira_count }}
+          CONFLUENCE_DATA: ${{ steps.confluence.outputs.confluence_data }}
+          CONFLUENCE_COUNT: ${{ steps.confluence.outputs.confluence_count }}
         run: |
-          # Use AI-generated report directly (already formatted and character-limited)
+          # Main message (AI-generated)
           if [ -n "$FULL_REPORT" ]; then
-            echo "report<<EOF" >> $GITHUB_OUTPUT
+            echo "main_message<<EOF" >> $GITHUB_OUTPUT
             echo "$FULL_REPORT" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
           else
-            # Fallback if AI failed
             REPORT="*☀️ Daily Briefing — $(date +'%A, %B %d, %Y')*\n\n_AI report generation failed. Check workflow logs._"
-            echo "report<<EOF" >> $GITHUB_OUTPUT
+            echo "main_message<<EOF" >> $GITHUB_OUTPUT
             echo -e "$REPORT" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
           fi
+          
+          # Thread reply with detailed Jira activity (with hyperlinks)
+          THREAD="*📊 Recent Activity Details (24h)*\n\n"
+          THREAD+="*📋 Jira (${JIRA_COUNT} issues)*\n"
+          THREAD+="${JIRA_LINKED}\n"
+          
+          if [ "${CONFLUENCE_COUNT:-0}" -gt 0 ]; then
+            THREAD+="\n*📝 Confluence*\n"
+            THREAD+="${CONFLUENCE_DATA}"
+          fi
+          
+          echo "thread_message<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$THREAD" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Send to Slack
+      - name: Send Main Message to Slack
+        id: slack_main
         uses: slackapi/slack-github-action@v1.27.0
         with:
           channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
@@ -431,7 +463,29 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": ${{ toJSON(steps.report.outputs.report) }}
+                    "text": ${{ toJSON(steps.report.outputs.main_message) }}
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+
+      - name: Send Activity Thread Reply
+        if: steps.slack_main.outputs.ts != ''
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
+          payload: |
+            {
+              "thread_ts": "${{ steps.slack_main.outputs.ts }}",
+              "text": "Recent Activity Details",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ${{ toJSON(steps.report.outputs.thread_message) }}
                   }
                 }
               ]
