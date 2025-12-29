@@ -1,0 +1,27 @@
+{
+  // YAML Language Server configuration
+  // Associates GitHub Actions workflows with the correct schema for proper validation
+  "yaml.schemas": {
+    "https://json.schemastore.org/github-workflow.json": ".github/workflows/*.yml"
+  },
+  
+  // Enable validation with the correct schema
+  "yaml.validate": true,
+  
+  // Custom tags for GitHub Actions expressions (prevents false "unknown tag" errors)
+  "yaml.customTags": [
+    "!reference sequence"
+  ],
+  
+  // Specific file associations
+  "files.associations": {
+    ".github/workflows/*.yml": "yaml"
+  },
+  
+  // Disable problematic built-in validation that conflicts with Actions syntax
+  // The schema validation above handles it correctly
+  "[yaml]": {
+    "editor.defaultFormatter": "redhat.vscode-yaml"
+  }
+}
+
