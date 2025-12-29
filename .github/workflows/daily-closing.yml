@@ -25,37 +25,6 @@ jobs:
       # STEP 1: GATHER TODAY'S ACTIVITY
       # ============================================
       
-      - name: Get Atlassian Account ID
-        id: atlassian_user
-        continue-on-error: true
-        env:
-          ATLASSIAN_DOMAIN: ${{ secrets.ATLASSIAN_DOMAIN }}
-          ATLASSIAN_EMAIL: ${{ secrets.ATLASSIAN_EMAIL }}
-          ATLASSIAN_API_TOKEN: ${{ secrets.ATLASSIAN_API_TOKEN }}
-        run: |
-          if [ -z "$ATLASSIAN_DOMAIN" ] || [ -z "$ATLASSIAN_EMAIL" ]; then
-            echo "account_id=" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-          
-          echo "Getting Atlassian account ID for $ATLASSIAN_EMAIL..."
-          
-          # Get current user's account ID from Jira
-          USER_RESPONSE=$(curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
-            "https://${ATLASSIAN_DOMAIN}/rest/api/3/myself")
-          
-          echo "User Response: $USER_RESPONSE"
-          
-          ACCOUNT_ID=$(echo "$USER_RESPONSE" | jq -r '.accountId // empty' 2>/dev/null)
-          
-          if [ -n "$ACCOUNT_ID" ]; then
-            echo "Found account ID: $ACCOUNT_ID"
-            echo "account_id=$ACCOUNT_ID" >> $GITHUB_OUTPUT
-          else
-            echo "Could not get account ID"
-            echo "account_id=" >> $GITHUB_OUTPUT
-          fi
-
       - name: Fetch Jira Activity
         id: jira
         continue-on-error: true
@@ -64,7 +33,6 @@ jobs:
           ATLASSIAN_EMAIL: ${{ secrets.ATLASSIAN_EMAIL }}
           ATLASSIAN_API_TOKEN: ${{ secrets.ATLASSIAN_API_TOKEN }}
           JIRA_PROJECT: ${{ secrets.JIRA_PROJECT }}
-          ACCOUNT_ID: ${{ steps.atlassian_user.outputs.account_id }}
         run: |
           if [ -z "$ATLASSIAN_DOMAIN" ] || [ -z "$JIRA_PROJECT" ]; then
             echo "jira_data=_Jira not configured_" >> $GITHUB_OUTPUT
@@ -72,41 +40,50 @@ jobs:
             exit 0
           fi
           
-          echo "Fetching today's Jira activity..."
-          echo "Account ID: $ACCOUNT_ID"
+          echo "Fetching today's Jira activity from $ATLASSIAN_DOMAIN..."
+          echo "User email: $ATLASSIAN_EMAIL"
           
-          # Build JQL query - use account ID if available
-          if [ -n "$ACCOUNT_ID" ]; then
-            # Use account ID for precise filtering
-            JQL="project = ${JIRA_PROJECT} AND (assignee = '${ACCOUNT_ID}' OR reporter = '${ACCOUNT_ID}' OR watcher = '${ACCOUNT_ID}' OR creator = '${ACCOUNT_ID}') AND updated >= startOfDay() ORDER BY updated DESC"
-          else
-            # Fallback to project-wide if no account ID
-            JQL="project = ${JIRA_PROJECT} AND updated >= startOfDay() ORDER BY updated DESC"
-          fi
+          # Use email directly in JQL - this is the most reliable approach
+          JQL="project = ${JIRA_PROJECT} AND (assignee = \"${ATLASSIAN_EMAIL}\" OR reporter = \"${ATLASSIAN_EMAIL}\" OR watcher = \"${ATLASSIAN_EMAIL}\" OR creator = \"${ATLASSIAN_EMAIL}\") AND updated >= startOfDay() ORDER BY updated DESC"
           
           echo "JQL: $JQL"
           JQL_ENCODED=$(echo "$JQL" | jq -sRr @uri)
           
-          JIRA_RESPONSE=$(curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+          echo "Encoded JQL: $JQL_ENCODED"
+          
+          JIRA_RESPONSE=$(curl -s -w "\n%{http_code}" -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
             "https://${ATLASSIAN_DOMAIN}/rest/api/3/search?jql=${JQL_ENCODED}&maxResults=30&fields=key,summary,status,updated")
           
-          echo "Response: $JIRA_RESPONSE"
+          # Extract HTTP code and response body
+          HTTP_CODE=$(echo "$JIRA_RESPONSE" | tail -1)
+          RESPONSE_BODY=$(echo "$JIRA_RESPONSE" | sed '$d')
           
-          # Check for errors
-          ERROR_MSG=$(echo "$JIRA_RESPONSE" | jq -r '.errorMessages[0] // empty' 2>/dev/null)
-          if [ -n "$ERROR_MSG" ]; then
-            echo "JQL Error: $ERROR_MSG"
-            # Fallback to simpler query without user filter
+          echo "HTTP Code: $HTTP_CODE"
+          echo "Response Body: $RESPONSE_BODY"
+          
+          # Check HTTP status
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "HTTP Error: $HTTP_CODE"
             echo "Falling back to project-wide query..."
             JQL="project = ${JIRA_PROJECT} AND updated >= startOfDay() ORDER BY updated DESC"
             JQL_ENCODED=$(echo "$JQL" | jq -sRr @uri)
             JIRA_RESPONSE=$(curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
               "https://${ATLASSIAN_DOMAIN}/rest/api/3/search?jql=${JQL_ENCODED}&maxResults=30&fields=key,summary,status,updated")
-            echo "Fallback Response: $JIRA_RESPONSE"
+            RESPONSE_BODY="$JIRA_RESPONSE"
+            echo "Fallback Response: $RESPONSE_BODY"
           fi
           
-          JIRA_COUNT=$(echo "$JIRA_RESPONSE" | jq -r '.issues | length' 2>/dev/null || echo "0")
-          JIRA_ISSUES=$(echo "$JIRA_RESPONSE" | jq -r '.issues[]? | "• \(.key): \(.fields.summary) [\(.fields.status.name)]"' 2>/dev/null || echo "")
+          # Check for JQL errors
+          ERROR_MSG=$(echo "$RESPONSE_BODY" | jq -r '.errorMessages[0] // empty' 2>/dev/null)
+          if [ -n "$ERROR_MSG" ]; then
+            echo "JQL Error: $ERROR_MSG"
+            RESPONSE_BODY='{"issues":[]}'
+          fi
+          
+          JIRA_COUNT=$(echo "$RESPONSE_BODY" | jq -r '.issues | length' 2>/dev/null || echo "0")
+          JIRA_ISSUES=$(echo "$RESPONSE_BODY" | jq -r '.issues[]? | "• \(.key): \(.fields.summary) [\(.fields.status.name)]"' 2>/dev/null || echo "")
+          
+          echo "Found $JIRA_COUNT issues"
           
           if [ -z "$JIRA_ISSUES" ] || [ "$JIRA_COUNT" = "0" ]; then
             JIRA_ISSUES="_No Jira activity today_"
