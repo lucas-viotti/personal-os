@@ -83,19 +83,18 @@ jobs:
           
           JIRA_COUNT=$(echo "$RESPONSE_BODY" | jq -r '.issues | length' 2>/dev/null || echo "0")
           
-          # Limit to 10 issues and truncate long summaries to avoid Slack's 3000 char limit
-          JIRA_ISSUES=$(echo "$RESPONSE_BODY" | jq -r '.issues[:10]? | .[]? | "• \(.key): \(.fields.summary | if length > 50 then .[:47] + "..." else . end) [\(.fields.status.name)]"' 2>/dev/null || echo "")
+          # Get full issue list for AI to summarize (key, summary, status)
+          JIRA_RAW=$(echo "$RESPONSE_BODY" | jq -r '.issues[]? | "\(.key): \(.fields.summary) [\(.fields.status.name)]"' 2>/dev/null || echo "")
           
-          echo "Found $JIRA_COUNT issues (showing up to 10)"
+          echo "Found $JIRA_COUNT issues"
           
-          if [ -z "$JIRA_ISSUES" ] || [ "$JIRA_COUNT" = "0" ]; then
-            JIRA_ISSUES="_No Jira activity in the last 24h_"
-          elif [ "$JIRA_COUNT" -gt 10 ]; then
-            JIRA_ISSUES="${JIRA_ISSUES}\n_... and $((JIRA_COUNT - 10)) more_"
+          if [ -z "$JIRA_RAW" ] || [ "$JIRA_COUNT" = "0" ]; then
+            JIRA_RAW="_No Jira activity in the last 24h_"
           fi
           
-          echo "jira_data<<EOF" >> $GITHUB_OUTPUT
-          echo "$JIRA_ISSUES" >> $GITHUB_OUTPUT
+          # Output raw data for AI to summarize
+          echo "jira_raw<<EOF" >> $GITHUB_OUTPUT
+          echo "$JIRA_RAW" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           echo "jira_count=$JIRA_COUNT" >> $GITHUB_OUTPUT
 
@@ -263,7 +262,7 @@ jobs:
       # STEP 2: AI ANALYSIS
       # ============================================
       
-      - name: Generate AI Focus Suggestions
+      - name: Generate AI Summary and Recommendations
         id: ai_analysis
         continue-on-error: true
         env:
@@ -272,61 +271,91 @@ jobs:
           LLM_MODEL_SECRET: ${{ secrets.LLM_MODEL }}
           P0_COUNT: ${{ steps.tasks.outputs.p0_count }}
           P1_COUNT: ${{ steps.tasks.outputs.p1_count }}
+          P0_NOT_STARTED: ${{ steps.tasks.outputs.p0_not_started }}
+          P0_IN_PROGRESS: ${{ steps.tasks.outputs.p0_in_progress }}
+          P1_NOT_STARTED: ${{ steps.tasks.outputs.p1_not_started }}
+          P1_IN_PROGRESS: ${{ steps.tasks.outputs.p1_in_progress }}
           BLOCKED_COUNT: ${{ steps.tasks.outputs.blocked_count }}
           TASK_DETAILS: ${{ steps.tasks.outputs.task_details }}
-          JIRA_DATA: ${{ steps.jira.outputs.jira_data }}
+          JIRA_RAW: ${{ steps.jira.outputs.jira_raw }}
+          JIRA_COUNT: ${{ steps.jira.outputs.jira_count }}
           CONFLUENCE_DATA: ${{ steps.confluence.outputs.confluence_data }}
+          CONFLUENCE_COUNT: ${{ steps.confluence.outputs.confluence_count }}
         run: |
-          # Use secret model if set, otherwise use env default
           MODEL="${LLM_MODEL_SECRET:-${{ env.LLM_MODEL }}}"
           
           if [ -z "$LLM_API_KEY" ]; then
-            echo "suggestions=_AI analysis not configured. Add LLM_API_KEY secret._" >> $GITHUB_OUTPUT
+            echo "full_report=_AI not configured. Add LLM_API_KEY secret._" >> $GITHUB_OUTPUT
             exit 0
           fi
           
-          # Build the prompt using heredoc to avoid YAML parsing issues
+          # Build comprehensive prompt for AI to generate the ENTIRE Slack message
           read -r -d '' PROMPT << 'PROMPT_END' || true
-          You are a productivity assistant helping a Product Manager prioritize their day.
-          
-          IMPORTANT RULES:
-          - Select ONLY 2-3 tasks to focus on today (no more!)
-          - For each task, explain WHY it should be prioritized based on its context
-          - Use Slack mrkdwn: bold with *, italics with _
-          - Use status emoji: 🔴 (not started), 🟡 (in progress), 🟠 (blocked)
-          
-          OUTPUT FORMAT (exactly this, no subtitles or headers):
-          • [emoji] *Task name*
-          _[1 sentence reason why this task matters today based on context]_
-          
-          • [emoji] *Another task*
-          _[1 sentence reason based on context]_
-          
-          DO NOT include:
-          - "Focus Recommendation:" or "Tasks Needing Attention:" headers
-          - More than 3 tasks
-          - Generic advice - be specific to the task context provided
+          You are a productivity assistant. Generate a complete Slack daily briefing.
+
+          CRITICAL: Output must be UNDER 2500 characters total (Slack limit is 3000).
+          Use Slack mrkdwn: *bold*, _italic_, • for bullets
+
+          Generate this EXACT structure:
+
+          *☀️ Daily Briefing — [TODAY's DATE]*
+
+          *🚨 P0 Tasks (Do Today):* [count]
+          [List P0 tasks grouped by status - show max 3 per group, truncate names if needed]
+
+          *⚡ P1 Tasks (This Week):* [count]
+          [List P1 tasks grouped by status - show max 4 per group, truncate names if needed]
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          *📊 Recent Activity (24h)*
+          [Intelligently summarize Jira activity in 2-3 bullets - group similar items]
+          [Mention Confluence if any activity]
+          • 💬 Slack: _Ask Cursor IDE for context_
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+          *💡 AI Focus Recommendation*
+          [2-3 specific tasks with emoji and 1-line reason why they matter]
+          Use: 🔴 not started, 🟡 in progress, 🟠 blocked
+
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          _Open Cursor IDE to analyze Slack activity or apply task updates_
+
+          Be CONCISE. Truncate long task names. Prioritize clarity over completeness.
           PROMPT_END
           
-          # Append dynamic context
+          TODAY=$(date +'%A, %B %d, %Y')
+          
           PROMPT="$PROMPT
 
-          TODAY: $(date +'%A, %B %d, %Y')
-          SUMMARY: P0=$P0_COUNT | P1=$P1_COUNT | Blocked=$BLOCKED_COUNT
-          
-          TASK DETAILS WITH CONTEXT:
-          $TASK_DETAILS
-          
-          RECENT ACTIVITY:
-          Jira: $JIRA_DATA
-          Confluence: $CONFLUENCE_DATA"
+          TODAY: $TODAY
 
-          # Determine API URL
+          RAW DATA TO SUMMARIZE:
+
+          P0 TASKS ($P0_COUNT total):
+          Not started: $P0_NOT_STARTED
+          In progress: $P0_IN_PROGRESS
+
+          P1 TASKS ($P1_COUNT total):
+          Not started: $P1_NOT_STARTED
+          In progress: $P1_IN_PROGRESS
+
+          BLOCKED: $BLOCKED_COUNT
+
+          JIRA ($JIRA_COUNT issues in last 24h):
+          $JIRA_RAW
+
+          CONFLUENCE ($CONFLUENCE_COUNT pages):
+          $CONFLUENCE_DATA
+
+          TASK CONTEXT FOR RECOMMENDATIONS:
+          $TASK_DETAILS"
+
           API_URL="${LLM_API_URL:-https://api.openai.com}"
           
-          echo "Calling LLM API at $API_URL..."
+          echo "Calling LLM to generate full report..."
           
-          # Make the API call
           AI_RESPONSE=$(curl -s -X POST "${API_URL}/v1/chat/completions" \
             -H "Authorization: Bearer $LLM_API_KEY" \
             -H "Content-Type: application/json" \
@@ -334,27 +363,28 @@ jobs:
               '{
                 "model": $model,
                 "messages": [{"role": "user", "content": $prompt}],
-                "max_tokens": 500,
-                "temperature": 0.7
+                "max_tokens": 1200,
+                "temperature": 0.5
               }')" 2>&1)
           
-          echo "API Response: $AI_RESPONSE"
+          echo "API Response: ${AI_RESPONSE:0:500}"
           
-          # Extract the response
-          AI_SUGGESTIONS=$(echo "$AI_RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+          FULL_REPORT=$(echo "$AI_RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
           
-          if [ -z "$AI_SUGGESTIONS" ]; then
-            # Check for error message
+          if [ -z "$FULL_REPORT" ]; then
             ERROR_MSG=$(echo "$AI_RESPONSE" | jq -r '.error.message // empty' 2>/dev/null)
-            if [ -n "$ERROR_MSG" ]; then
-              AI_SUGGESTIONS="_AI error: ${ERROR_MSG}_"
-            else
-              AI_SUGGESTIONS="_AI analysis unavailable_"
-            fi
+            FULL_REPORT="*☀️ Daily Briefing — $TODAY*\n\n_AI error: ${ERROR_MSG:-unavailable}_\n\nP0: $P0_COUNT | P1: $P1_COUNT | Jira: $JIRA_COUNT issues"
           fi
           
-          echo "suggestions<<EOF" >> $GITHUB_OUTPUT
-          echo "$AI_SUGGESTIONS" >> $GITHUB_OUTPUT
+          # Ensure output doesn't exceed Slack limit (truncate if needed)
+          if [ ${#FULL_REPORT} -gt 2900 ]; then
+            FULL_REPORT="${FULL_REPORT:0:2850}...\n\n_[Truncated - open Cursor for full details]_"
+          fi
+          
+          echo "Report length: ${#FULL_REPORT} chars"
+          
+          echo "full_report<<EOF" >> $GITHUB_OUTPUT
+          echo "$FULL_REPORT" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       # ============================================
@@ -364,87 +394,20 @@ jobs:
       - name: Build Slack Message
         id: report
         env:
-          P0_COUNT: ${{ steps.tasks.outputs.p0_count }}
-          P1_COUNT: ${{ steps.tasks.outputs.p1_count }}
-          BLOCKED_COUNT: ${{ steps.tasks.outputs.blocked_count }}
-          P0_NOT_STARTED: ${{ steps.tasks.outputs.p0_not_started }}
-          P0_IN_PROGRESS: ${{ steps.tasks.outputs.p0_in_progress }}
-          P1_NOT_STARTED: ${{ steps.tasks.outputs.p1_not_started }}
-          P1_IN_PROGRESS: ${{ steps.tasks.outputs.p1_in_progress }}
-          BLOCKED_TASKS: ${{ steps.tasks.outputs.blocked_tasks }}
-          JIRA_COUNT: ${{ steps.jira.outputs.jira_count }}
-          JIRA_DATA: ${{ steps.jira.outputs.jira_data }}
-          CONFLUENCE_COUNT: ${{ steps.confluence.outputs.confluence_count }}
-          CONFLUENCE_DATA: ${{ steps.confluence.outputs.confluence_data }}
-          AI_SUGGESTIONS: ${{ steps.ai_analysis.outputs.suggestions }}
+          FULL_REPORT: ${{ steps.ai_analysis.outputs.full_report }}
         run: |
-          REPORT="*☀️ Daily Briefing — $(date +'%A, %B %d, %Y')*\n\n"
-          
-          # P0 Tasks - grouped by status
-          REPORT+="*🚨 P0 Tasks (Do Today):* ${P0_COUNT:-0}\n"
-          if [ -n "$P0_NOT_STARTED" ] && [ "$P0_NOT_STARTED" != "\n" ]; then
-            REPORT+="*🔴 Not started*\n"
-            REPORT+="${P0_NOT_STARTED}"
-          fi
-          if [ -n "$P0_IN_PROGRESS" ] && [ "$P0_IN_PROGRESS" != "\n" ]; then
-            REPORT+="*🟡 In Progress*\n"
-            REPORT+="${P0_IN_PROGRESS}"
-          fi
-          if [ "${P0_COUNT:-0}" -eq 0 ]; then
-            REPORT+="_None_\n"
-          fi
-          REPORT+="\n"
-          
-          # P1 Tasks - grouped by status
-          REPORT+="*⚡ P1 Tasks (This Week):* ${P1_COUNT:-0}\n"
-          if [ -n "$P1_NOT_STARTED" ] && [ "$P1_NOT_STARTED" != "\n" ]; then
-            REPORT+="*🔴 Not started*\n"
-            REPORT+="${P1_NOT_STARTED}"
-          fi
-          if [ -n "$P1_IN_PROGRESS" ] && [ "$P1_IN_PROGRESS" != "\n" ]; then
-            REPORT+="*🟡 In Progress*\n"
-            REPORT+="${P1_IN_PROGRESS}"
-          fi
-          if [ "${P1_COUNT:-0}" -eq 0 ]; then
-            REPORT+="_None_\n"
-          fi
-          REPORT+="\n"
-          
-          # Blocked warning
-          if [ "${BLOCKED_COUNT:-0}" -gt 0 ]; then
-            REPORT+="*⚠️ Blocked Tasks:* ${BLOCKED_COUNT}\n"
-            REPORT+="${BLOCKED_TASKS}\n"
-          fi
-          
-          REPORT+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-          
-          # Recent Activity - show details if available
-          REPORT+="*📊 Recent Activity (24h)*\n"
-          if [ "${JIRA_COUNT:-0}" -gt 0 ]; then
-            REPORT+="*📋 Jira (${JIRA_COUNT}):*\n${JIRA_DATA}\n\n"
+          # Use AI-generated report directly (already formatted and character-limited)
+          if [ -n "$FULL_REPORT" ]; then
+            echo "report<<EOF" >> $GITHUB_OUTPUT
+            echo "$FULL_REPORT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           else
-            REPORT+="• 📋 Jira: _No activity_\n"
+            # Fallback if AI failed
+            REPORT="*☀️ Daily Briefing — $(date +'%A, %B %d, %Y')*\n\n_AI report generation failed. Check workflow logs._"
+            echo "report<<EOF" >> $GITHUB_OUTPUT
+            echo -e "$REPORT" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
           fi
-          
-          if [ "${CONFLUENCE_COUNT:-0}" -gt 0 ]; then
-            REPORT+="*📝 Confluence (${CONFLUENCE_COUNT}):*\n${CONFLUENCE_DATA}\n\n"
-          else
-            REPORT+="• 📝 Confluence: _No activity_\n"
-          fi
-          REPORT+="• 💬 Slack: _Ask Cursor IDE for context_\n\n"
-          
-          REPORT+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-          
-          # AI Suggestions
-          REPORT+="*💡 AI Focus Recommendation*\n"
-          REPORT+="${AI_SUGGESTIONS:-_AI analysis not available_}\n\n"
-          
-          REPORT+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-          REPORT+="_Open Cursor IDE to analyze Slack activity or apply task updates_"
-          
-          echo "report<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$REPORT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Send to Slack
         uses: slackapi/slack-github-action@v1.27.0
