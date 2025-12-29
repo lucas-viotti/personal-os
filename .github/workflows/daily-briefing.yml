@@ -153,6 +153,44 @@ jobs:
             BLOCKED_TASKS="${BLOCKED_TASKS}• ${TITLE}\n"
           done
           
+          # Extract detailed context from top priority tasks for AI analysis
+          # Get P0 not-started tasks with full context (most important for AI)
+          TASK_DETAILS=""
+          for file in $(grep -l "priority: P0" Tasks/*.md 2>/dev/null | head -3 || echo ""); do
+            TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
+            STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+            # Extract Context section (first 3 lines after ## Context)
+            CONTEXT=$(sed -n '/^## Context/,/^##/{/^## Context/d;/^##/d;p}' "$file" | head -3 | tr '\n' ' ')
+            # Extract latest Progress Log entry
+            PROGRESS=$(sed -n '/^## Progress Log/,/^##/{/^## Progress Log/d;/^##/d;p}' "$file" | grep "^-" | tail -1)
+            
+            case $STATUS in
+              n) STATUS_EMOJI="🔴" ;;
+              s|ip) STATUS_EMOJI="🟡" ;;
+              b) STATUS_EMOJI="🟠" ;;
+              *) STATUS_EMOJI="⚪" ;;
+            esac
+            
+            TASK_DETAILS="${TASK_DETAILS}---\nTASK: ${TITLE}\nSTATUS: ${STATUS_EMOJI}\nCONTEXT: ${CONTEXT}\nLATEST: ${PROGRESS}\n"
+          done
+          
+          # Also get top P1 not-started tasks
+          for file in $(grep -l "priority: P1" Tasks/*.md 2>/dev/null | head -3 || echo ""); do
+            TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
+            STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+            CONTEXT=$(sed -n '/^## Context/,/^##/{/^## Context/d;/^##/d;p}' "$file" | head -3 | tr '\n' ' ')
+            PROGRESS=$(sed -n '/^## Progress Log/,/^##/{/^## Progress Log/d;/^##/d;p}' "$file" | grep "^-" | tail -1)
+            
+            case $STATUS in
+              n) STATUS_EMOJI="🔴" ;;
+              s|ip) STATUS_EMOJI="🟡" ;;
+              b) STATUS_EMOJI="🟠" ;;
+              *) STATUS_EMOJI="⚪" ;;
+            esac
+            
+            TASK_DETAILS="${TASK_DETAILS}---\nTASK: ${TITLE}\nSTATUS: ${STATUS_EMOJI}\nCONTEXT: ${CONTEXT}\nLATEST: ${PROGRESS}\n"
+          done
+          
           # Output counts
           echo "p0_count=$P0_COUNT" >> $GITHUB_OUTPUT
           echo "p1_count=$P1_COUNT" >> $GITHUB_OUTPUT
@@ -179,6 +217,11 @@ jobs:
           echo "blocked_tasks<<EOF" >> $GITHUB_OUTPUT
           echo -e "$BLOCKED_TASKS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+          
+          # Output detailed task context for AI
+          echo "task_details<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$TASK_DETAILS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       # ============================================
       # STEP 2: AI ANALYSIS
@@ -194,11 +237,7 @@ jobs:
           P0_COUNT: ${{ steps.tasks.outputs.p0_count }}
           P1_COUNT: ${{ steps.tasks.outputs.p1_count }}
           BLOCKED_COUNT: ${{ steps.tasks.outputs.blocked_count }}
-          P0_NOT_STARTED: ${{ steps.tasks.outputs.p0_not_started }}
-          P0_IN_PROGRESS: ${{ steps.tasks.outputs.p0_in_progress }}
-          P1_NOT_STARTED: ${{ steps.tasks.outputs.p1_not_started }}
-          P1_IN_PROGRESS: ${{ steps.tasks.outputs.p1_in_progress }}
-          BLOCKED_TASKS: ${{ steps.tasks.outputs.blocked_tasks }}
+          TASK_DETAILS: ${{ steps.tasks.outputs.task_details }}
           JIRA_DATA: ${{ steps.jira.outputs.jira_data }}
           CONFLUENCE_DATA: ${{ steps.confluence.outputs.confluence_data }}
         run: |
@@ -212,31 +251,39 @@ jobs:
           
           # Build the prompt using heredoc to avoid YAML parsing issues
           read -r -d '' PROMPT << 'PROMPT_END' || true
-          You are a productivity assistant helping a Product Manager start their day.
-          Based on the context below, provide a brief 2-3 sentence focus recommendation,
-          identify tasks needing attention, and flag potential blockers.
-          Keep it concise. Use Slack mrkdwn formatting (bold with *, bullets with •).
-          When listing tasks needing attention, use emoji circles to indicate status:
-          • 🔴 for not started tasks
-          • 🟡 for in progress tasks
-          • 🟠 for blocked tasks
-          Do NOT add text labels like "(P0 NOT STARTED)" - just use the emoji prefix.
+          You are a productivity assistant helping a Product Manager prioritize their day.
+          
+          IMPORTANT RULES:
+          - Select ONLY 2-3 tasks to focus on today (no more!)
+          - For each task, explain WHY it should be prioritized based on its context
+          - Use Slack mrkdwn: bold with *, italics with _
+          - Use status emoji: 🔴 (not started), 🟡 (in progress), 🟠 (blocked)
+          
+          OUTPUT FORMAT (exactly this, no subtitles or headers):
+          • [emoji] *Task name*
+          _[1 sentence reason why this task matters today based on context]_
+          
+          • [emoji] *Another task*
+          _[1 sentence reason based on context]_
+          
+          DO NOT include:
+          - "Focus Recommendation:" or "Tasks Needing Attention:" headers
+          - More than 3 tasks
+          - Generic advice - be specific to the task context provided
           PROMPT_END
           
           # Append dynamic context
           PROMPT="$PROMPT
 
           TODAY: $(date +'%A, %B %d, %Y')
-          P0 Tasks: $P0_COUNT | P1 Tasks: $P1_COUNT | Blocked: $BLOCKED_COUNT
+          SUMMARY: P0=$P0_COUNT | P1=$P1_COUNT | Blocked=$BLOCKED_COUNT
           
-          P0 NOT STARTED: $P0_NOT_STARTED
-          P0 IN PROGRESS: $P0_IN_PROGRESS
-          P1 NOT STARTED: $P1_NOT_STARTED
-          P1 IN PROGRESS: $P1_IN_PROGRESS
-          BLOCKED: $BLOCKED_TASKS
+          TASK DETAILS WITH CONTEXT:
+          $TASK_DETAILS
           
-          Recent Jira: $JIRA_DATA
-          Recent Confluence: $CONFLUENCE_DATA"
+          RECENT ACTIVITY:
+          Jira: $JIRA_DATA
+          Confluence: $CONFLUENCE_DATA"
 
           # Determine API URL
           API_URL="${LLM_API_URL:-https://api.openai.com}"

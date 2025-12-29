@@ -210,25 +210,38 @@ jobs:
           
           # Build prompt using heredoc
           read -r -d '' PROMPT << 'PROMPT_END' || true
-          You are a productivity assistant helping a Product Manager log their daily progress.
-          Based on today's activity, suggest task updates to log, status changes needed,
-          and any activity not connected to existing tasks.
-          Keep it concise. Use Slack mrkdwn formatting (bold with *, bullets with •).
-          When listing tasks, use emoji circles to indicate status:
-          • 🔴 for not started tasks
-          • 🟡 for in progress tasks
-          • 🟠 for blocked tasks
-          Do NOT add text labels like "(P0 NOT STARTED)" - just use the emoji prefix.
+          You are a productivity assistant helping a Product Manager log their end-of-day progress.
+          
+          IMPORTANT RULES:
+          - Suggest ONLY 2-3 specific task updates to log (no more!)
+          - Match today's Jira/Confluence activity to existing tasks
+          - Flag any activity that doesn't connect to a task
+          - Use Slack mrkdwn: bold with *, italics with _
+          - Use status emoji: 🔴 (not started), 🟡 (in progress), ✅ (done today)
+          
+          OUTPUT FORMAT (exactly this, no extra headers):
+          • [emoji] *Task name*
+          _[Specific update to log based on today's activity]_
+          
+          • [emoji] *Another task*
+          _[What progress was made or should be noted]_
+          
+          DO NOT include:
+          - "Suggested Updates:" or similar headers
+          - More than 3 items
+          - Generic summaries - be specific to the activity shown
           PROMPT_END
           
           PROMPT="$PROMPT
 
           TODAY: $(date +'%A, %B %d, %Y')
           
+          TODAY'S ACTIVITY:
           Jira ($JIRA_COUNT tickets): $JIRA_DATA
           Confluence ($CONFLUENCE_COUNT pages): $CONFLUENCE_DATA
           
-          Current Tasks: $TASK_DETAILS"
+          CURRENT TASKS:
+          $TASK_DETAILS"
 
           API_URL="${LLM_API_URL:-https://api.openai.com}"
           
