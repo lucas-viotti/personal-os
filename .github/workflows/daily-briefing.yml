@@ -44,8 +44,8 @@ jobs:
           echo "Fetching Jira activity from $ATLASSIAN_DOMAIN..."
           
           # Use new Jira API endpoint (POST /rest/api/3/search/jql)
-          # Old /rest/api/3/search was deprecated and removed (HTTP 410)
-          JQL="project = ${JIRA_PROJECT} AND updated >= -24h ORDER BY updated DESC"
+          # Filter to issues where user is assignee, reporter, or watcher (mentioned)
+          JQL="project = ${JIRA_PROJECT} AND (assignee = \"${ATLASSIAN_EMAIL}\" OR reporter = \"${ATLASSIAN_EMAIL}\" OR watcher = \"${ATLASSIAN_EMAIL}\") AND updated >= -24h ORDER BY updated DESC"
           
           echo "JQL: $JQL"
           
@@ -329,18 +329,18 @@ jobs:
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *💡 AI Focus Recommendation*
-          Based on your current priorities and recent Jira activity, here's what to focus on:
+          Based on your current priorities and recent activity, here's what to focus on:
 
           • 🔴 *[P0 Task name]*
           _[2-3 sentences explaining WHY this is critical today. Reference specific context, deadlines, dependencies, or stakeholder needs. Be specific to this task.]_
 
           • 🟡 *[P1 Task name]*
-          _[2-3 sentences explaining the importance and what progress to make. Reference related Jira tickets if relevant.]_
+          _[2-3 sentences explaining the importance and what progress to make. Reference related Jira tickets or Confluence pages if relevant.]_
 
           • 🟡 *[Another task]*
           _[2-3 sentences with specific reasoning based on task context and activity.]_
 
-          _📊 See thread for detailed Jira activity →_
+          _📊 See thread for detailed activity (Jira & Confluence) →_
 
           TASK FORMAT RULES:
           - Status headers: *🔴 Not started* and *🟡 In Progress* as bold headers

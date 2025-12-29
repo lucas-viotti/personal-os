@@ -43,8 +43,8 @@ jobs:
           echo "Fetching today's Jira activity from $ATLASSIAN_DOMAIN..."
           
           # Use new Jira API endpoint (POST /rest/api/3/search/jql)
-          # Old /rest/api/3/search was deprecated and removed (HTTP 410)
-          JQL="project = ${JIRA_PROJECT} AND updated >= startOfDay() ORDER BY updated DESC"
+          # Filter to issues where user is assignee, reporter, or watcher (mentioned)
+          JQL="project = ${JIRA_PROJECT} AND (assignee = \"${ATLASSIAN_EMAIL}\" OR reporter = \"${ATLASSIAN_EMAIL}\" OR watcher = \"${ATLASSIAN_EMAIL}\") AND updated >= startOfDay() ORDER BY updated DESC"
           
           echo "JQL: $JQL"
           

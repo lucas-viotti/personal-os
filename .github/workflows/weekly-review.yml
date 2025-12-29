@@ -46,8 +46,8 @@ jobs:
           echo "Fetching weekly Jira activity..."
           
           # Use new Jira API endpoint (POST /rest/api/3/search/jql)
-          # Old /rest/api/3/search was deprecated and removed (HTTP 410)
-          JQL="project = ${JIRA_PROJECT} AND updated >= -7d ORDER BY updated DESC"
+          # Filter to issues where user is assignee, reporter, or watcher (mentioned)
+          JQL="project = ${JIRA_PROJECT} AND (assignee = \"${ATLASSIAN_EMAIL}\" OR reporter = \"${ATLASSIAN_EMAIL}\" OR watcher = \"${ATLASSIAN_EMAIL}\") AND updated >= -7d ORDER BY updated DESC"
           
           echo "JQL: $JQL"
           
@@ -80,19 +80,17 @@ jobs:
           JIRA_COUNT=$(echo "$RESPONSE_BODY" | jq -r '.issues | length' 2>/dev/null || echo "0")
           RESOLVED_COUNT=$(echo "$RESPONSE_BODY" | jq -r '[.issues[]? | select(.fields.resolution != null)] | length' 2>/dev/null || echo "0")
           
-          # Limit to 15 issues for weekly and truncate long summaries to avoid Slack's 3000 char limit
-          JIRA_ISSUES=$(echo "$RESPONSE_BODY" | jq -r '.issues[:15]? | .[]? | "• \(.key): \(.fields.summary | if length > 50 then .[:47] + "..." else . end) [\(.fields.status.name)]"' 2>/dev/null || echo "")
+          # Get full issue list for AI to summarize
+          JIRA_RAW=$(echo "$RESPONSE_BODY" | jq -r '.issues[]? | "\(.key): \(.fields.summary) [\(.fields.status.name)]"' 2>/dev/null || echo "")
           
-          echo "Found $JIRA_COUNT issues ($RESOLVED_COUNT resolved, showing up to 15)"
+          echo "Found $JIRA_COUNT issues ($RESOLVED_COUNT resolved)"
           
-          if [ -z "$JIRA_ISSUES" ] || [ "$JIRA_COUNT" = "0" ]; then
-            JIRA_ISSUES="_No Jira activity this week_"
-          elif [ "$JIRA_COUNT" -gt 15 ]; then
-            JIRA_ISSUES="${JIRA_ISSUES}\n_... and $((JIRA_COUNT - 15)) more_"
+          if [ -z "$JIRA_RAW" ] || [ "$JIRA_COUNT" = "0" ]; then
+            JIRA_RAW="_No Jira activity this week_"
           fi
           
-          echo "jira_data<<EOF" >> $GITHUB_OUTPUT
-          echo "$JIRA_ISSUES" >> $GITHUB_OUTPUT
+          echo "jira_raw<<EOF" >> $GITHUB_OUTPUT
+          echo "$JIRA_RAW" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           echo "jira_count=$JIRA_COUNT" >> $GITHUB_OUTPUT
           echo "resolved_count=$RESOLVED_COUNT" >> $GITHUB_OUTPUT
@@ -234,7 +232,7 @@ jobs:
       # STEP 2: AI ANALYSIS
       # ============================================
       
-      - name: Generate AI Weekly Insights
+      - name: Generate AI Weekly Summary
         id: ai_analysis
         continue-on-error: true
         env:
@@ -242,6 +240,7 @@ jobs:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_MODEL_SECRET: ${{ secrets.LLM_MODEL }}
           JIRA_COUNT: ${{ steps.jira.outputs.jira_count }}
+          JIRA_RAW: ${{ steps.jira.outputs.jira_raw }}
           RESOLVED_COUNT: ${{ steps.jira.outputs.resolved_count }}
           CONFLUENCE_COUNT: ${{ steps.confluence.outputs.confluence_count }}
           COMMITS_COUNT: ${{ steps.git_activity.outputs.commits_count }}
@@ -256,36 +255,52 @@ jobs:
           MODEL="${LLM_MODEL_SECRET:-${{ env.LLM_MODEL }}}"
           
           if [ -z "$LLM_API_KEY" ]; then
-            echo "suggestions=_AI analysis not configured. Add LLM_API_KEY secret._" >> $GITHUB_OUTPUT
+            echo "activity_summary=_AI not configured_" >> $GITHUB_OUTPUT
+            echo "weekly_reflection=_Add LLM_API_KEY secret for AI insights_" >> $GITHUB_OUTPUT
             exit 0
           fi
           
-          # Build prompt using heredoc
           read -r -d '' PROMPT << 'PROMPT_END' || true
           You are a productivity coach helping a Product Manager reflect on their week.
-          Provide a brief weekly reflection covering key accomplishments, attention needed,
-          next week focus, and housekeeping items.
-          Keep it concise and motivating. Use Slack mrkdwn formatting (bold with *, bullets with •).
-          When listing tasks, use emoji circles to indicate status:
-          • 🔴 for not started tasks
-          • 🟡 for in progress tasks
-          • 🟠 for blocked tasks
-          Do NOT add text labels like "(P0 NOT STARTED)" - just use the emoji prefix.
+
+          OUTPUT TWO SECTIONS (use exact headers):
+
+          ---ACTIVITY_SUMMARY---
+          Summarize the week's Jira activity in 3-5 bullet points.
+          - Group by theme/project (e.g., "Beta rollout: 5 tickets progressed")
+          - Highlight completions and key milestones
+          - Keep each bullet under 80 chars
+          - Use format: • [theme]: [brief summary]
+          - MAX 400 characters total
+
+          ---WEEKLY_REFLECTION---
+          Brief reflection covering:
+          • 🏆 *Key Win:* [1 sentence on biggest accomplishment]
+          • 🎯 *Next Week:* [1-2 priority focuses]
+          - Keep it motivating and specific
+          - Use emoji: 🔴 not started, 🟡 in progress, 🟠 blocked
+          - MAX 300 characters total
+
+          Use Slack mrkdwn: *bold*, _italic_
           PROMPT_END
           
           PROMPT="$PROMPT
 
           WEEK ENDING: $(date +'%B %d, %Y')
-          
-          Activity: Jira $JIRA_COUNT touched / $RESOLVED_COUNT resolved | Confluence $CONFLUENCE_COUNT | Commits $COMMITS_COUNT
-          Tasks: P0=$P0_COUNT P1=$P1_COUNT Blocked=$BLOCKED_COUNT Done=$DONE_COUNT Total=$TOTAL_TASKS
+
+          JIRA ACTIVITY ($JIRA_COUNT touched, $RESOLVED_COUNT resolved):
+          $JIRA_RAW
+
+          Confluence: $CONFLUENCE_COUNT pages | Commits: $COMMITS_COUNT
+          Tasks: P0=$P0_COUNT P1=$P1_COUNT Blocked=$BLOCKED_COUNT Done=$DONE_COUNT
           Backlog: $BACKLOG_ITEMS
-          
-          All Tasks: $TASK_DETAILS"
+
+          TASK DETAILS:
+          $TASK_DETAILS"
 
           API_URL="${LLM_API_URL:-https://api.openai.com}"
           
-          echo "Calling LLM API at $API_URL..."
+          echo "Calling LLM API..."
           
           AI_RESPONSE=$(curl -s -X POST "${API_URL}/v1/chat/completions" \
             -H "Authorization: Bearer $LLM_API_KEY" \
@@ -294,25 +309,38 @@ jobs:
               '{
                 "model": $model,
                 "messages": [{"role": "user", "content": $prompt}],
-                "max_tokens": 700,
+                "max_tokens": 800,
                 "temperature": 0.7
               }')" 2>&1)
           
-          echo "API Response: $AI_RESPONSE"
+          echo "API Response: ${AI_RESPONSE:0:500}"
           
-          AI_SUGGESTIONS=$(echo "$AI_RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+          AI_OUTPUT=$(echo "$AI_RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
           
-          if [ -z "$AI_SUGGESTIONS" ]; then
+          if [ -z "$AI_OUTPUT" ]; then
             ERROR_MSG=$(echo "$AI_RESPONSE" | jq -r '.error.message // empty' 2>/dev/null)
-            if [ -n "$ERROR_MSG" ]; then
-              AI_SUGGESTIONS="_AI error: ${ERROR_MSG}_"
-            else
-              AI_SUGGESTIONS="_AI analysis unavailable_"
-            fi
+            echo "activity_summary=_AI error: ${ERROR_MSG:-unavailable}_" >> $GITHUB_OUTPUT
+            echo "weekly_reflection=_AI analysis unavailable_" >> $GITHUB_OUTPUT
+            exit 0
           fi
           
-          echo "suggestions<<EOF" >> $GITHUB_OUTPUT
-          echo "$AI_SUGGESTIONS" >> $GITHUB_OUTPUT
+          # Parse sections
+          ACTIVITY=$(echo "$AI_OUTPUT" | sed -n '/---ACTIVITY_SUMMARY---/,/---WEEKLY_REFLECTION---/p' | grep -v "^---" | head -10)
+          REFLECTION=$(echo "$AI_OUTPUT" | sed -n '/---WEEKLY_REFLECTION---/,/$/p' | grep -v "^---" | head -10)
+          
+          if [ -z "$ACTIVITY" ]; then
+            ACTIVITY="_${JIRA_COUNT} Jira tickets touched, ${RESOLVED_COUNT} resolved_"
+          fi
+          if [ -z "$REFLECTION" ]; then
+            REFLECTION="$AI_OUTPUT"
+          fi
+          
+          echo "activity_summary<<EOF" >> $GITHUB_OUTPUT
+          echo "$ACTIVITY" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "weekly_reflection<<EOF" >> $GITHUB_OUTPUT
+          echo "$REFLECTION" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       # ============================================
@@ -334,24 +362,20 @@ jobs:
           P0_NOT_STARTED: ${{ steps.tasks.outputs.p0_not_started }}
           P0_IN_PROGRESS: ${{ steps.tasks.outputs.p0_in_progress }}
           BACKLOG_ITEMS: ${{ steps.tasks.outputs.backlog_items }}
-          AI_SUGGESTIONS: ${{ steps.ai_analysis.outputs.suggestions }}
+          ACTIVITY_SUMMARY: ${{ steps.ai_analysis.outputs.activity_summary }}
+          WEEKLY_REFLECTION: ${{ steps.ai_analysis.outputs.weekly_reflection }}
         run: |
           REPORT="*📅 Weekly Review — Week of $(date +'%B %d, %Y')*\n\n"
           
-          # This Week's Activity
+          # AI-summarized Activity
           REPORT+="*📈 This Week's Activity*\n"
-          REPORT+="• 📋 Jira: *${JIRA_COUNT:-0}* touched, *${RESOLVED_COUNT:-0}* resolved\n"
-          REPORT+="• 📝 Confluence: *${CONFLUENCE_COUNT:-0}* pages edited\n"
-          REPORT+="• 💬 Slack: _Ask Cursor IDE for context_\n"
-          REPORT+="• 📁 Task commits: *${COMMITS_COUNT:-0}*\n\n"
+          REPORT+="${ACTIVITY_SUMMARY:-_No activity data_}\n"
+          REPORT+="• 📝 Confluence: *${CONFLUENCE_COUNT:-0}* pages\n"
+          REPORT+="• 💬 Slack: _Ask Cursor IDE for context_\n\n"
           
           # Task Overview
           REPORT+="*📋 Task Overview*\n"
-          REPORT+="• 🚨 P0 (Critical): *${P0_COUNT:-0}*\n"
-          REPORT+="• ⚡ P1 (This Week): *${P1_COUNT:-0}*\n"
-          REPORT+="• 🟠 Blocked: *${BLOCKED_COUNT:-0}*\n"
-          REPORT+="• ✅ Done: *${DONE_COUNT:-0}*\n"
-          REPORT+="• 📊 Total Active: *${TOTAL_TASKS:-0}*\n\n"
+          REPORT+="• 🚨 P0: *${P0_COUNT:-0}* | ⚡ P1: *${P1_COUNT:-0}* | 🟠 Blocked: *${BLOCKED_COUNT:-0}* | ✅ Done: *${DONE_COUNT:-0}*\n\n"
           
           # P0 Tasks - grouped by status
           if [ "${P0_COUNT:-0}" -gt 0 ]; then
@@ -372,9 +396,9 @@ jobs:
           
           REPORT+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
           
-          # AI Insights
-          REPORT+="*💡 AI Weekly Insights*\n"
-          REPORT+="${AI_SUGGESTIONS:-_AI analysis not available_}\n\n"
+          # AI Weekly Reflection
+          REPORT+="*💡 Weekly Reflection*\n"
+          REPORT+="${WEEKLY_REFLECTION:-_AI analysis not available_}\n\n"
           
           REPORT+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
           REPORT+="_Open Cursor IDE for full interactive weekly reflection_"
