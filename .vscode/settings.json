@@ -28,11 +28,18 @@
   "yaml.maxItemsComputed": 5000,
   
   // =============================================================
-  // GitHub Actions Linter Specific Settings (if using GitHub extension)
+  // GitHub Actions Extension Settings
   // =============================================================
+  // Disable checks that require network or produce false positives
   
-  // Suppress action resolution errors (requires network)
+  // Disable action version resolution (requires network, causes "unable to resolve" errors)
   "github-actions.workflows.pinned-version-recommendations.enabled": false,
+  
+  // Disable remote action validation (prevents "Unable to resolve action" errors)
+  "github-actions.remote-actions.enabled": false,
+  
+  // Disable expression validation (prevents false "Unrecognized named-value" errors)
+  "github-actions.expression-validation.enabled": false,
   
   // =============================================================
   // File Associations
