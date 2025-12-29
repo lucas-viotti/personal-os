@@ -239,6 +239,10 @@ jobs:
           LLM_MODEL_SECRET: ${{ secrets.LLM_MODEL }}
           P0_COUNT: ${{ steps.tasks.outputs.p0_count }}
           P1_COUNT: ${{ steps.tasks.outputs.p1_count }}
+          P0_NOT_STARTED: ${{ steps.tasks.outputs.p0_not_started }}
+          P0_IN_PROGRESS: ${{ steps.tasks.outputs.p0_in_progress }}
+          P1_NOT_STARTED: ${{ steps.tasks.outputs.p1_not_started }}
+          P1_IN_PROGRESS: ${{ steps.tasks.outputs.p1_in_progress }}
           JIRA_COUNT: ${{ steps.jira.outputs.jira_count }}
           JIRA_RAW: ${{ steps.jira.outputs.jira_raw }}
           CONFLUENCE_COUNT: ${{ steps.confluence.outputs.confluence_count }}
@@ -253,32 +257,48 @@ jobs:
           fi
           
           read -r -d '' PROMPT << 'PROMPT_END' || true
-          You are a productivity assistant. Generate a complete Slack end-of-day report.
+          You are a productivity assistant. Generate a Slack end-of-day report focused on TASK progress.
 
-          CRITICAL: Output must be UNDER 2800 characters total.
+          CRITICAL: Output must be UNDER 2500 characters total.
           Use Slack mrkdwn: *bold*, _italic_, • for bullets
 
           Generate this EXACT structure:
 
           *📊 Daily Closing — [TODAY's DATE]*
 
-          *📈 Today's Activity*
-          [Summarize Jira/Confluence activity in 4-6 concise bullets]
-          [Group similar items, mention specific ticket keys, highlight completions]
+          *📈 Today's Progress*
+          [Summarize what TASKS moved forward today - use Jira/Confluence as evidence]
+          [Focus on task progress, not just Jira activity]
+          [3-4 concise bullets about actual work accomplished]
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *📋 Task Status*
-          [Brief summary of what moved forward today across P0 and P1 tasks]
+          *🚨 P0 Tasks (Do Today)*: [1-2 sentence summary of P0 task progress]
+          *⚡ P1 Tasks (This Week)*: [1-2 sentence summary of P1 task progress]
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *💡 Suggested Task Updates*
-          • 🟡 *[Task name]*: _[specific update to log based on activity]_
-          • ✅ *[Task name]*: _[what was completed]_
-          • 🟡 *[Task name]*: _[progress note]_
+          THIS IS THE MOST IMPORTANT SECTION. Be thoughtful and specific.
 
-          Be CONCISE but DETAILED about actual work done today.
+          For each P0 task that was NOT completed today, you MUST suggest one of:
+          • 🔴 *[Task name]*: _Task is now OVERDUE - reschedule to [specific date] or mark blocked_
+          • 🟡 *[Task name]*: _Progress made: [specific update]. Continue tomorrow._
+          • ✂️ *[Task name]*: _Consider breaking into subtasks: [suggestion]_
+          • 📅 *[Task name]*: _Due date should be updated to [date] because [reason]_
+
+          For tasks with progress:
+          • 🟡 *[Task name]*: _[specific progress update based on Jira/Confluence activity]_
+          • ✅ *[Task name]*: _Completed - [what was delivered]_
+
+          RULES:
+          - Every P0 task needs an update suggestion (it was due TODAY)
+          - Reference specific Jira tickets or Confluence pages as evidence
+          - If no progress on a task, explicitly call it out
+          - Suggest concrete next actions or date changes
+
+          _📊 See thread for detailed activity (Jira & Confluence) →_
           PROMPT_END
           
           TODAY=$(date +'%A, %B %d, %Y')
@@ -287,13 +307,21 @@ jobs:
 
           TODAY: $TODAY
 
-          JIRA ($JIRA_COUNT issues today):
+          P0 TASKS (were due TODAY):
+          Not started: $P0_NOT_STARTED
+          In progress: $P0_IN_PROGRESS
+
+          P1 TASKS (due this week):
+          Not started: $P1_NOT_STARTED
+          In progress: $P1_IN_PROGRESS
+
+          JIRA ACTIVITY ($JIRA_COUNT issues):
           $JIRA_RAW
 
-          CONFLUENCE ($CONFLUENCE_COUNT pages):
+          CONFLUENCE ACTIVITY ($CONFLUENCE_COUNT pages):
           $CONFLUENCE_DATA
 
-          TASK CONTEXT:
+          FULL TASK DETAILS (for context on due dates, goals, progress):
           $TASK_DETAILS"
 
           API_URL="${LLM_API_URL:-https://api.openai.com}"
