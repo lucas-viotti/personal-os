@@ -259,8 +259,7 @@ jobs:
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *📋 Task Status*
-          P0: [count] | P1: [count]
-          [Brief summary of what moved forward today]
+          [Brief summary of what moved forward today across P0 and P1 tasks]
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -277,7 +276,6 @@ jobs:
           PROMPT="$PROMPT
 
           TODAY: $TODAY
-          TASK COUNTS: P0=$P0_COUNT | P1=$P1_COUNT
 
           JIRA ($JIRA_COUNT issues today):
           $JIRA_RAW

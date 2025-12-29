@@ -312,13 +312,13 @@ jobs:
 
           *☀️ Daily Briefing — [TODAY's DATE]*
 
-          *🚨 P0 Tasks (Do Today):* [count]
+          *🚨 P0 Tasks (Do Today)*
           *🔴 Not started*
           • [task name - truncate if over 50 chars]
           *🟡 In Progress*
           • [task name]
 
-          *⚡ P1 Tasks (This Week):* [count]
+          *⚡ P1 Tasks (This Week)*
           *🔴 Not started*
           • [task name]
           • [task name]
