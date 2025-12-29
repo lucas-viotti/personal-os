@@ -19,7 +19,7 @@ GOALS.md        # Personal goals
 # Keep templates and examples
 !CLAUDE_TEMPLATE.md
 !config.example.yaml
-!Tasks/example.md
+!Tasks/example*.md
 !CRM/example.md
 
 # Python

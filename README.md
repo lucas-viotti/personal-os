@@ -42,7 +42,7 @@ cd personal-os
    - `SLACK_CHANNEL_ID`: Target channel/DM ID
 
 #### AI-Powered Analysis
-Works with any OpenAI-compatible API (OpenAI, Azure OpenAI, Anthropic via proxy, local LLMs like Ollama):
+Works with any LLM Provider API (OpenAI, Azure OpenAI, Anthropic via proxy, local LLMs like Ollama):
 - `LLM_API_KEY`: Your API key
 - `LLM_API_URL`: (Optional) API endpoint URL (defaults to OpenAI)
 
