@@ -25,6 +25,45 @@ jobs:
       # STEP 1: GATHER TODAY'S ACTIVITY
       # ============================================
       
+      - name: Check Task File Changes (Git)
+        id: git_changes
+        run: |
+          echo "Checking for task file changes committed today..."
+          
+          # Get today's date at midnight for filtering
+          TODAY_START=$(date -u +%Y-%m-%dT00:00:00Z)
+          
+          # Get list of task files changed today (committed)
+          CHANGED_FILES=$(git log --since="$TODAY_START" --name-only --pretty=format: -- Tasks/*.md Knowledge/*.md 2>/dev/null | sort -u | grep -v '^$' || echo "")
+          
+          if [ -n "$CHANGED_FILES" ]; then
+            echo "Found changed files:"
+            echo "$CHANGED_FILES"
+            
+            # Get the actual diffs for task files (focus on Progress Log section)
+            TASK_CHANGES=""
+            for file in $CHANGED_FILES; do
+              if [ -f "$file" ]; then
+                FILENAME=$(basename "$file" .md)
+                # Get the diff for this file from today's commits
+                DIFF=$(git log --since="$TODAY_START" -p -- "$file" 2>/dev/null | grep "^+" | grep -v "^+++" | head -20 || echo "")
+                if [ -n "$DIFF" ]; then
+                  TASK_CHANGES="${TASK_CHANGES}📝 *${FILENAME}*:\n${DIFF}\n\n"
+                fi
+              fi
+            done
+            
+            echo "task_changes<<EOF" >> $GITHUB_OUTPUT
+            echo -e "$TASK_CHANGES" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            
+            echo "changed_count=$(echo "$CHANGED_FILES" | wc -l | tr -d ' ')" >> $GITHUB_OUTPUT
+          else
+            echo "No task files changed today"
+            echo "task_changes=_No task files were modified today._" >> $GITHUB_OUTPUT
+            echo "changed_count=0" >> $GITHUB_OUTPUT
+          fi
+
       - name: Fetch Jira Activity
         id: jira
         continue-on-error: true
@@ -248,6 +287,8 @@ jobs:
           CONFLUENCE_COUNT: ${{ steps.confluence.outputs.confluence_count }}
           CONFLUENCE_DATA: ${{ steps.confluence.outputs.confluence_data }}
           TASK_DETAILS: ${{ steps.tasks.outputs.task_details }}
+          TASK_FILE_CHANGES: ${{ steps.git_changes.outputs.task_changes }}
+          CHANGED_FILES_COUNT: ${{ steps.git_changes.outputs.changed_count }}
         run: |
           MODEL="${LLM_MODEL_SECRET:-${{ env.LLM_MODEL }}}"
           
@@ -257,46 +298,56 @@ jobs:
           fi
           
           read -r -d '' PROMPT << 'PROMPT_END' || true
-          You are a productivity assistant. Generate a Slack end-of-day report focused on TASK progress.
+          You are a productivity assistant. Generate a Slack end-of-day report.
 
-          CRITICAL: Output must be UNDER 2500 characters total.
-          Use Slack mrkdwn: *bold*, _italic_, • for bullets
+          CRITICAL RULES:
+          1. Output must be UNDER 2500 characters total
+          2. Use Slack mrkdwn: *bold*, _italic_, • for bullets
+          3. PRIORITIZE local file changes (TASK_FILE_CHANGES) as the PRIMARY evidence of work
+          4. Jira/Confluence are SECONDARY sources - supporting evidence
+          5. NEVER invent progress - only report what's in the data
+
+          DATA PRIORITY ORDER:
+          1. TASK_FILE_CHANGES (git commits to Tasks/*.md) - YOUR MAIN SOURCE
+          2. Jira activity - supporting evidence
+          3. Confluence activity - supporting evidence
 
           Generate this EXACT structure:
 
           *📊 Daily Closing — [TODAY's DATE]*
 
           *📈 Today's Progress*
-          [Summarize what TASKS moved forward today - use Jira/Confluence as evidence]
-          [Focus on task progress, not just Jira activity]
-          [3-4 concise bullets about actual work accomplished]
+          Report based on TASK_FILE_CHANGES first, then Jira/Confluence.
+          • 📝 [Task file that was modified]: [what changed based on git diff]
+          • 📋 [Jira ticket]: [status update if any]
+          • 📄 [Confluence page]: [what was edited]
+          If nothing changed, write: "_No files modified or activity recorded today._"
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *📋 Task Status*
-          *🚨 P0 Tasks (Do Today)*: [1-2 sentence summary of P0 task progress]
-          *⚡ P1 Tasks (This Week)*: [1-2 sentence summary of P1 task progress]
+          *🚨 P0 Tasks (Do Today)*: [Summary based on file changes and activity]
+          *⚡ P1 Tasks (This Week)*: [Summary based on file changes and activity]
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *💡 Suggested Task Updates*
-          THIS IS THE MOST IMPORTANT SECTION. Be thoughtful and specific.
+          THIS IS THE MOST IMPORTANT SECTION.
 
-          For each P0 task that was NOT completed today, you MUST suggest one of:
-          • 🔴 *[Task name]*: _Task is now OVERDUE - reschedule to [specific date] or mark blocked_
-          • 🟡 *[Task name]*: _Progress made: [specific update]. Continue tomorrow._
-          • ✂️ *[Task name]*: _Consider breaking into subtasks: [suggestion]_
-          • 📅 *[Task name]*: _Due date should be updated to [date] because [reason]_
+          For tasks WITH file changes today:
+          • 🟡 *[Task name]*: _File updated. Suggest logging: [based on diff]._
+          • ✅ *[Task name]*: _Status changed to done. Archive it._
 
-          For tasks with progress:
-          • 🟡 *[Task name]*: _[specific progress update based on Jira/Confluence activity]_
-          • ✅ *[Task name]*: _Completed - [what was delivered]_
+          For P0 tasks WITHOUT any activity (no file changes, no Jira):
+          • 🔴 *[Task name]*: _OVERDUE - no work recorded. Reschedule to [date] or mark blocked._
 
-          RULES:
-          - Every P0 task needs an update suggestion (it was due TODAY)
-          - Reference specific Jira tickets or Confluence pages as evidence
-          - If no progress on a task, explicitly call it out
-          - Suggest concrete next actions or date changes
+          For tasks with Jira activity but no file update:
+          • 🟡 *[Task name]*: _Jira activity on [ticket]. Update task file with progress._
+
+          HONESTY RULES:
+          - Task file changes = definitive progress evidence
+          - No file changes + no Jira = no progress (say it honestly)
+          - Suggest specific actions based on actual data
 
           _📊 See thread for detailed activity (Jira & Confluence) →_
           PROMPT_END
@@ -306,6 +357,15 @@ jobs:
           PROMPT="$PROMPT
 
           TODAY: $TODAY
+
+          ═══════════════════════════════════════════
+          PRIMARY EVIDENCE: TASK FILE CHANGES ($CHANGED_FILES_COUNT files modified)
+          ═══════════════════════════════════════════
+          $TASK_FILE_CHANGES
+
+          ═══════════════════════════════════════════
+          SECONDARY EVIDENCE: EXTERNAL ACTIVITY
+          ═══════════════════════════════════════════
 
           P0 TASKS (were due TODAY):
           Not started: $P0_NOT_STARTED
@@ -321,7 +381,7 @@ jobs:
           CONFLUENCE ACTIVITY ($CONFLUENCE_COUNT pages):
           $CONFLUENCE_DATA
 
-          FULL TASK DETAILS (for context on due dates, goals, progress):
+          FULL TASK DETAILS (for context):
           $TASK_DETAILS"
 
           API_URL="${LLM_API_URL:-https://api.openai.com}"
