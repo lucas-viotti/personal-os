@@ -1,27 +1,45 @@
 {
-  // YAML Language Server configuration
-  // Associates GitHub Actions workflows with the correct schema for proper validation
+  // =============================================================
+  // YAML & GitHub Actions Workflow Configuration
+  // =============================================================
+  // 
+  // GitHub Actions workflows use expressions like ${{ secrets.* }} and
+  // ${{ steps.*.outputs.* }} that standard YAML linters misinterpret.
+  // These settings minimize false positives while keeping validation
+  // for non-workflow YAML files.
+  
+  // Use the official GitHub Actions schema for workflow files
   "yaml.schemas": {
     "https://json.schemastore.org/github-workflow.json": ".github/workflows/*.yml"
   },
   
-  // Enable validation with the correct schema
+  // Enable schema store for auto-detection
+  "yaml.schemaStore.enable": true,
+  
+  // General YAML validation (applies to non-workflow files)
   "yaml.validate": true,
   
-  // Custom tags for GitHub Actions expressions (prevents false "unknown tag" errors)
+  // Custom tags that GitHub Actions uses
   "yaml.customTags": [
     "!reference sequence"
   ],
   
-  // Specific file associations
-  "files.associations": {
-    ".github/workflows/*.yml": "yaml"
-  },
+  // Reduce noise from expression validation in workflows
+  "yaml.maxItemsComputed": 5000,
   
-  // Disable problematic built-in validation that conflicts with Actions syntax
-  // The schema validation above handles it correctly
-  "[yaml]": {
-    "editor.defaultFormatter": "redhat.vscode-yaml"
+  // =============================================================
+  // GitHub Actions Linter Specific Settings (if using GitHub extension)
+  // =============================================================
+  
+  // Suppress action resolution errors (requires network)
+  "github-actions.workflows.pinned-version-recommendations.enabled": false,
+  
+  // =============================================================
+  // File Associations
+  // =============================================================
+  
+  "files.associations": {
+    "*.yml": "yaml",
+    "*.yaml": "yaml"
   }
 }
-

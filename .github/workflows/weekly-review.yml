@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: Weekly Review
 
 # AI-powered weekly review with accomplishments and planning insights
