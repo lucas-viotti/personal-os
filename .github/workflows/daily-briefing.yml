@@ -43,33 +43,30 @@ jobs:
           
           echo "Fetching Jira activity from $ATLASSIAN_DOMAIN..."
           
-          # First, get the user's account ID from their email
-          ACCOUNT_RESPONSE=$(curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
-            "https://${ATLASSIAN_DOMAIN}/rest/api/3/user/search?query=${ATLASSIAN_EMAIL}" \
-            2>/dev/null || echo '[]')
-          
-          ACCOUNT_ID=$(echo "$ACCOUNT_RESPONSE" | jq -r '.[0].accountId // empty' 2>/dev/null)
-          
-          # Build JQL - filter by user if account ID found, otherwise fall back to project-wide
-          if [ -n "$ACCOUNT_ID" ]; then
-            # Show tickets the user updated, is assigned to, or is watching in last 24h
-            JQL="project = ${JIRA_PROJECT} AND (updatedBy = '${ACCOUNT_ID}' OR assignee = '${ACCOUNT_ID}' OR watcher = '${ACCOUNT_ID}') AND updated >= -24h ORDER BY updated DESC"
-            echo "Filtering by user: $ACCOUNT_ID"
-          else
-            # Fallback: show all project activity
-            JQL="project = ${JIRA_PROJECT} AND updated >= -24h ORDER BY updated DESC"
-            echo "Warning: Could not find account ID, showing all project activity"
-          fi
-          
-          JQL_ENCODED=$(echo "$JQL" | jq -sRr @uri)
+          # Use currentUser() which resolves to the API token owner
+          # This is more reliable than looking up account IDs
+          JQL="project = ${JIRA_PROJECT} AND (assignee = currentUser() OR reporter = currentUser() OR watcher = currentUser() OR creator = currentUser()) AND updated >= -24h ORDER BY updated DESC"
           
           echo "JQL: $JQL"
+          JQL_ENCODED=$(echo "$JQL" | jq -sRr @uri)
           
           JIRA_RESPONSE=$(curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
-            "https://${ATLASSIAN_DOMAIN}/rest/api/3/search?jql=${JQL_ENCODED}&maxResults=20&fields=key,summary,status,updated" \
-            2>/dev/null || echo '{"issues":[]}')
+            "https://${ATLASSIAN_DOMAIN}/rest/api/3/search?jql=${JQL_ENCODED}&maxResults=20&fields=key,summary,status,updated")
           
           echo "Response: $JIRA_RESPONSE"
+          
+          # Check for errors
+          ERROR_MSG=$(echo "$JIRA_RESPONSE" | jq -r '.errorMessages[0] // empty' 2>/dev/null)
+          if [ -n "$ERROR_MSG" ]; then
+            echo "JQL Error: $ERROR_MSG"
+            # Fallback to simpler query without user filter
+            echo "Falling back to project-wide query..."
+            JQL="project = ${JIRA_PROJECT} AND updated >= -24h ORDER BY updated DESC"
+            JQL_ENCODED=$(echo "$JQL" | jq -sRr @uri)
+            JIRA_RESPONSE=$(curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+              "https://${ATLASSIAN_DOMAIN}/rest/api/3/search?jql=${JQL_ENCODED}&maxResults=20&fields=key,summary,status,updated")
+            echo "Fallback Response: $JIRA_RESPONSE"
+          fi
           
           JIRA_COUNT=$(echo "$JIRA_RESPONSE" | jq -r '.issues | length' 2>/dev/null || echo "0")
           JIRA_ISSUES=$(echo "$JIRA_RESPONSE" | jq -r '.issues[]? | "• \(.key): \(.fields.summary) [\(.fields.status.name)]"' 2>/dev/null || echo "")
