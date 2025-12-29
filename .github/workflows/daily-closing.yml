@@ -42,13 +42,33 @@ jobs:
           
           echo "Fetching today's Jira activity..."
           
-          TODAY=$(date -u +%Y-%m-%d)
-          JQL="project = ${JIRA_PROJECT} AND updated >= '${TODAY}' ORDER BY updated DESC"
+          # First, get the user's account ID from their email
+          ACCOUNT_RESPONSE=$(curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+            "https://${ATLASSIAN_DOMAIN}/rest/api/3/user/search?query=${ATLASSIAN_EMAIL}" \
+            2>/dev/null || echo '[]')
+          
+          ACCOUNT_ID=$(echo "$ACCOUNT_RESPONSE" | jq -r '.[0].accountId // empty' 2>/dev/null)
+          
+          # Build JQL - filter by user if account ID found
+          if [ -n "$ACCOUNT_ID" ]; then
+            # Show tickets the user updated OR was assigned to today
+            JQL="project = ${JIRA_PROJECT} AND (updatedBy = '${ACCOUNT_ID}' OR assignee = '${ACCOUNT_ID}') AND updated >= startOfDay() ORDER BY updated DESC"
+            echo "Filtering by user: $ACCOUNT_ID"
+          else
+            # Fallback: show all project activity today
+            JQL="project = ${JIRA_PROJECT} AND updated >= startOfDay() ORDER BY updated DESC"
+            echo "Warning: Could not find account ID, showing all project activity"
+          fi
+          
           JQL_ENCODED=$(echo "$JQL" | jq -sRr @uri)
+          
+          echo "JQL: $JQL"
           
           JIRA_RESPONSE=$(curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
             "https://${ATLASSIAN_DOMAIN}/rest/api/3/search?jql=${JQL_ENCODED}&maxResults=30&fields=key,summary,status,updated" \
             2>/dev/null || echo '{"issues":[]}')
+          
+          echo "Response: $JIRA_RESPONSE"
           
           JIRA_COUNT=$(echo "$JIRA_RESPONSE" | jq -r '.issues | length' 2>/dev/null || echo "0")
           JIRA_ISSUES=$(echo "$JIRA_RESPONSE" | jq -r '.issues[]? | "• \(.key): \(.fields.summary) [\(.fields.status.name)]"' 2>/dev/null || echo "")
