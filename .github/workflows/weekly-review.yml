@@ -80,12 +80,15 @@ jobs:
           JIRA_COUNT=$(echo "$RESPONSE_BODY" | jq -r '.issues | length' 2>/dev/null || echo "0")
           RESOLVED_COUNT=$(echo "$RESPONSE_BODY" | jq -r '[.issues[]? | select(.fields.resolution != null)] | length' 2>/dev/null || echo "0")
           
-          JIRA_ISSUES=$(echo "$RESPONSE_BODY" | jq -r '.issues[]? | "• \(.key): \(.fields.summary) [\(.fields.status.name)]"' 2>/dev/null || echo "")
+          # Limit to 15 issues for weekly and truncate long summaries to avoid Slack's 3000 char limit
+          JIRA_ISSUES=$(echo "$RESPONSE_BODY" | jq -r '.issues[:15]? | .[]? | "• \(.key): \(.fields.summary | if length > 50 then .[:47] + "..." else . end) [\(.fields.status.name)]"' 2>/dev/null || echo "")
           
-          echo "Found $JIRA_COUNT issues ($RESOLVED_COUNT resolved)"
+          echo "Found $JIRA_COUNT issues ($RESOLVED_COUNT resolved, showing up to 15)"
           
           if [ -z "$JIRA_ISSUES" ] || [ "$JIRA_COUNT" = "0" ]; then
             JIRA_ISSUES="_No Jira activity this week_"
+          elif [ "$JIRA_COUNT" -gt 15 ]; then
+            JIRA_ISSUES="${JIRA_ISSUES}\n_... and $((JIRA_COUNT - 15)) more_"
           fi
           
           echo "jira_data<<EOF" >> $GITHUB_OUTPUT
