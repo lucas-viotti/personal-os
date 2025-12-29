@@ -237,56 +237,72 @@ jobs:
       - name: Generate AI Weekly Insights
         id: ai_analysis
         if: ${{ secrets.LLM_API_KEY != '' }}
+        env:
+          LLM_API_URL: ${{ secrets.LLM_API_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ env.LLM_MODEL }}
+          JIRA_COUNT: ${{ steps.defaults.outputs.jira_count }}
+          RESOLVED_COUNT: ${{ steps.defaults.outputs.resolved_count }}
+          CONFLUENCE_COUNT: ${{ steps.defaults.outputs.confluence_count }}
+          COMMITS_COUNT: ${{ steps.git_activity.outputs.commits_count }}
+          P0_COUNT: ${{ steps.tasks.outputs.p0_count }}
+          P1_COUNT: ${{ steps.tasks.outputs.p1_count }}
+          BLOCKED_COUNT: ${{ steps.tasks.outputs.blocked_count }}
+          DONE_COUNT: ${{ steps.tasks.outputs.done_count }}
+          TOTAL_TASKS: ${{ steps.tasks.outputs.total }}
+          TASK_DETAILS: ${{ steps.tasks.outputs.task_details }}
+          BACKLOG_ITEMS: ${{ steps.tasks.outputs.backlog_items }}
         run: |
-          CONTEXT="You are a productivity coach helping someone reflect on their week.
+          # Build prompt using heredoc (avoids YAML parsing issues)
+          read -r -d '' CONTEXT << 'PROMPT_END' || true
+          You are a productivity coach helping someone reflect on their week.
+          
+          Provide a brief weekly reflection covering:
+          1. *Key Accomplishments* - What meaningful progress was made?
+          2. *Attention Needed* - Any blocked tasks or stale items?
+          3. *Next Week Focus* - Based on P0/P1, what should be the main focus?
+          4. *Housekeeping* - Any tasks to archive, cancel, or backlog to process?
+          
+          Keep it concise and motivating. Use Slack mrkdwn formatting.
+          PROMPT_END
+          
+          # Append dynamic data
+          CONTEXT="$CONTEXT
 
-WEEK ENDING: $(date +'%B %d, %Y')
-
-WEEKLY ACTIVITY:
-- Jira tickets touched: ${{ steps.defaults.outputs.jira_count }}
-- Jira tickets resolved: ${{ steps.defaults.outputs.resolved_count }}
-- Confluence pages edited: ${{ steps.defaults.outputs.confluence_count }}
-- Task file commits: ${{ steps.git_activity.outputs.commits_count }}
-
-CURRENT TASK STATUS:
-- P0 (Critical): ${{ steps.tasks.outputs.p0_count }}
-- P1 (This Week): ${{ steps.tasks.outputs.p1_count }}
-- Blocked: ${{ steps.tasks.outputs.blocked_count }}
-- Done (ready to archive): ${{ steps.tasks.outputs.done_count }}
-- Total Active: ${{ steps.tasks.outputs.total }}
-
-ALL TASKS:
-${{ steps.tasks.outputs.task_details }}
-
-BACKLOG ITEMS: ${{ steps.tasks.outputs.backlog_items }}
-
-Provide a brief weekly reflection:
-1. *Key Accomplishments*: What meaningful progress was made?
-2. *Attention Needed*: Any blocked tasks or stale items?
-3. *Next Week Focus*: Based on P0/P1, what should be the main focus?
-4. *Housekeeping*: Any tasks to archive, cancel, or backlog to process?
-
-Keep it concise and motivating. Use Slack mrkdwn formatting."
-
+          Week Ending: $(date +'%B %d, %Y')
+          
+          Weekly Activity:
+          - Jira tickets touched: $JIRA_COUNT
+          - Jira tickets resolved: $RESOLVED_COUNT
+          - Confluence pages edited: $CONFLUENCE_COUNT
+          - Task file commits: $COMMITS_COUNT
+          
+          Current Task Status:
+          - P0 (Critical): $P0_COUNT
+          - P1 (This Week): $P1_COUNT
+          - Blocked: $BLOCKED_COUNT
+          - Done (ready to archive): $DONE_COUNT
+          - Total Active: $TOTAL_TASKS
+          
+          All Tasks: $TASK_DETAILS
+          
+          Backlog Items: $BACKLOG_ITEMS"
+          
+          # Call LLM API
           API_URL="${LLM_API_URL:-https://api.openai.com}"
           
           AI_RESPONSE=$(curl -s -X POST "${API_URL}/v1/chat/completions" \
-            -H "Authorization: Bearer ${{ secrets.LLM_API_KEY }}" \
+            -H "Authorization: Bearer $LLM_API_KEY" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg context "$CONTEXT" --arg model "${{ env.LLM_MODEL }}" '{
-              "model": $model,
-              "messages": [{"role": "user", "content": $context}],
-              "max_tokens": 700,
-              "temperature": 0.7
-            }')" 2>/dev/null || echo '{"choices":[{"message":{"content":"_AI analysis unavailable_"}}]}')
+            -d "$(jq -n --arg context "$CONTEXT" --arg model "$LLM_MODEL" \
+              '{"model": $model, "messages": [{"role": "user", "content": $context}], "max_tokens": 700, "temperature": 0.7}')" \
+            2>/dev/null || echo '{"choices":[{"message":{"content":"_AI analysis unavailable_"}}]}')
           
           AI_INSIGHTS=$(echo "$AI_RESPONSE" | jq -r '.choices[0].message.content // "_AI analysis unavailable_"')
           
           echo "insights<<EOF" >> $GITHUB_OUTPUT
           echo "$AI_INSIGHTS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-        env:
-          LLM_API_URL: ${{ secrets.LLM_API_URL }}
 
       - name: Set AI Default if Skipped
         id: ai_defaults

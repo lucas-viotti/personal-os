@@ -173,55 +173,61 @@ jobs:
       - name: Generate AI Focus Suggestions
         id: ai_analysis
         if: ${{ secrets.LLM_API_KEY != '' }}
+        env:
+          LLM_API_URL: ${{ secrets.LLM_API_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ env.LLM_MODEL }}
+          P0_COUNT: ${{ steps.tasks.outputs.p0_count }}
+          P1_COUNT: ${{ steps.tasks.outputs.p1_count }}
+          BLOCKED_COUNT: ${{ steps.tasks.outputs.blocked_count }}
+          P0_TASKS: ${{ steps.tasks.outputs.p0_tasks }}
+          P1_TASKS: ${{ steps.tasks.outputs.p1_tasks }}
+          BLOCKED_TASKS: ${{ steps.tasks.outputs.blocked_tasks }}
+          JIRA_DATA: ${{ steps.defaults.outputs.jira_data }}
+          CONFLUENCE_DATA: ${{ steps.defaults.outputs.confluence_data }}
         run: |
-          CONTEXT="You are a productivity assistant helping someone start their day.
+          # Build prompt using heredoc (avoids YAML parsing issues)
+          read -r -d '' CONTEXT << 'PROMPT_END' || true
+          You are a productivity assistant helping someone start their day.
+          
+          Based on the context below, provide:
+          1. A brief 2-3 sentence focus recommendation for today
+          2. Identify any tasks that might need attention based on recent activity
+          3. Flag any potential blockers or follow-ups needed
+          
+          Keep it concise. Use Slack mrkdwn formatting (bold with *, bullets with •).
+          PROMPT_END
+          
+          # Append dynamic data
+          CONTEXT="$CONTEXT
 
-TODAY'S CONTEXT:
-- Date: $(date +'%A, %B %d, %Y')
-- P0 Tasks (Do Today): ${{ steps.tasks.outputs.p0_count }}
-- P1 Tasks (This Week): ${{ steps.tasks.outputs.p1_count }}
-- Blocked Tasks: ${{ steps.tasks.outputs.blocked_count }}
+          TODAY: $(date +'%A, %B %d, %Y')
+          P0 Tasks (Do Today): $P0_COUNT
+          P1 Tasks (This Week): $P1_COUNT
+          Blocked Tasks: $BLOCKED_COUNT
 
-P0 TASKS:
-${{ steps.tasks.outputs.p0_tasks }}
-
-P1 TASKS:
-${{ steps.tasks.outputs.p1_tasks }}
-
-BLOCKED TASKS:
-${{ steps.tasks.outputs.blocked_tasks }}
-
-RECENT EXTERNAL ACTIVITY:
-Jira: ${{ steps.defaults.outputs.jira_data }}
-Confluence: ${{ steps.defaults.outputs.confluence_data }}
-
-Provide:
-1. A brief 2-3 sentence focus recommendation for today
-2. Identify any tasks that might need attention based on recent activity
-3. Flag any potential blockers or follow-ups needed
-
-Keep it concise. Use Slack mrkdwn formatting (bold with *, bullets with •)."
-
+          P0 TASKS: $P0_TASKS
+          P1 TASKS: $P1_TASKS
+          BLOCKED TASKS: $BLOCKED_TASKS
+          
+          Recent Jira: $JIRA_DATA
+          Recent Confluence: $CONFLUENCE_DATA"
+          
           # Call LLM API (OpenAI-compatible endpoint)
           API_URL="${LLM_API_URL:-https://api.openai.com}"
           
           AI_RESPONSE=$(curl -s -X POST "${API_URL}/v1/chat/completions" \
-            -H "Authorization: Bearer ${{ secrets.LLM_API_KEY }}" \
+            -H "Authorization: Bearer $LLM_API_KEY" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg context "$CONTEXT" --arg model "${{ env.LLM_MODEL }}" '{
-              "model": $model,
-              "messages": [{"role": "user", "content": $context}],
-              "max_tokens": 500,
-              "temperature": 0.7
-            }')" 2>/dev/null || echo '{"choices":[{"message":{"content":"_AI analysis unavailable_"}}]}')
+            -d "$(jq -n --arg context "$CONTEXT" --arg model "$LLM_MODEL" \
+              '{"model": $model, "messages": [{"role": "user", "content": $context}], "max_tokens": 500, "temperature": 0.7}')" \
+            2>/dev/null || echo '{"choices":[{"message":{"content":"_AI analysis unavailable_"}}]}')
           
           AI_SUGGESTIONS=$(echo "$AI_RESPONSE" | jq -r '.choices[0].message.content // "_AI analysis unavailable_"')
           
           echo "suggestions<<EOF" >> $GITHUB_OUTPUT
           echo "$AI_SUGGESTIONS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-        env:
-          LLM_API_URL: ${{ secrets.LLM_API_URL }}
 
       - name: Set AI Default if Skipped
         id: ai_defaults

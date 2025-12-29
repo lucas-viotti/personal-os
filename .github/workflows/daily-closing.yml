@@ -208,44 +208,55 @@ jobs:
       - name: Generate AI Update Suggestions
         id: ai_analysis
         if: ${{ secrets.LLM_API_KEY != '' }}
+        env:
+          LLM_API_URL: ${{ secrets.LLM_API_URL }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ env.LLM_MODEL }}
+          JIRA_COUNT: ${{ steps.defaults.outputs.jira_count }}
+          JIRA_DATA: ${{ steps.defaults.outputs.jira_data }}
+          CONFLUENCE_COUNT: ${{ steps.defaults.outputs.confluence_count }}
+          CONFLUENCE_DATA: ${{ steps.defaults.outputs.confluence_data }}
+          TASK_DETAILS: ${{ steps.tasks.outputs.task_details }}
         run: |
-          CONTEXT="You are a productivity assistant helping someone log their daily progress before ending the workday.
+          # Build prompt using heredoc (avoids YAML parsing issues)
+          read -r -d '' CONTEXT << 'PROMPT_END' || true
+          You are a productivity assistant helping someone log their daily progress before ending the workday.
+          
+          Based on the activity below, suggest:
+          1. *Task Updates to Log* - Which tasks should have progress logged based on today's activity?
+          2. *Status Changes* - Should any task statuses be updated (e.g., not started to in progress)?
+          3. *Missing Tasks* - Is there activity that does not seem connected to any existing task?
+          
+          Keep it concise. Use Slack mrkdwn formatting (bold with *, bullets with bullet). Focus on what was actually DONE today.
+          PROMPT_END
+          
+          # Append dynamic data
+          CONTEXT="$CONTEXT
 
-TODAY'S DATE: $(date +'%A, %B %d, %Y')
-
-TODAY'S EXTERNAL ACTIVITY:
-Jira (${{ steps.defaults.outputs.jira_count }} tickets): ${{ steps.defaults.outputs.jira_data }}
-Confluence (${{ steps.defaults.outputs.confluence_count }} pages): ${{ steps.defaults.outputs.confluence_data }}
-
-CURRENT TASK LIST:
-${{ steps.tasks.outputs.task_details }}
-
-Based on this activity, suggest:
-1. *Task Updates to Log*: Which tasks should have progress logged based on today's activity?
-2. *Status Changes*: Should any task statuses be updated (e.g., 'not started' → 'in progress')?
-3. *Missing Tasks*: Is there activity that doesn't seem connected to any existing task?
-
-Keep it concise. Use Slack mrkdwn formatting (bold with *, bullets with •). Focus on what was actually DONE today."
-
+          TODAY: $(date +'%A, %B %d, %Y')
+          
+          External Activity:
+          - Jira ($JIRA_COUNT tickets): $JIRA_DATA
+          - Confluence ($CONFLUENCE_COUNT pages): $CONFLUENCE_DATA
+          
+          Current Task List:
+          $TASK_DETAILS"
+          
+          # Call LLM API
           API_URL="${LLM_API_URL:-https://api.openai.com}"
           
           AI_RESPONSE=$(curl -s -X POST "${API_URL}/v1/chat/completions" \
-            -H "Authorization: Bearer ${{ secrets.LLM_API_KEY }}" \
+            -H "Authorization: Bearer $LLM_API_KEY" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg context "$CONTEXT" --arg model "${{ env.LLM_MODEL }}" '{
-              "model": $model,
-              "messages": [{"role": "user", "content": $context}],
-              "max_tokens": 600,
-              "temperature": 0.7
-            }')" 2>/dev/null || echo '{"choices":[{"message":{"content":"_AI analysis unavailable_"}}]}')
+            -d "$(jq -n --arg context "$CONTEXT" --arg model "$LLM_MODEL" \
+              '{"model": $model, "messages": [{"role": "user", "content": $context}], "max_tokens": 600, "temperature": 0.7}')" \
+            2>/dev/null || echo '{"choices":[{"message":{"content":"_AI analysis unavailable_"}}]}')
           
           AI_SUGGESTIONS=$(echo "$AI_RESPONSE" | jq -r '.choices[0].message.content // "_AI analysis unavailable_"')
           
           echo "suggestions<<EOF" >> $GITHUB_OUTPUT
           echo "$AI_SUGGESTIONS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-        env:
-          LLM_API_URL: ${{ secrets.LLM_API_URL }}
 
       - name: Set AI Default if Skipped
         id: ai_defaults
