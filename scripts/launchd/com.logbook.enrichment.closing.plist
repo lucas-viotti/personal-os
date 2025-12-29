@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.logbook.enrichment.closing</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>SCRIPT_PATH/slack-enrichment.py</string>
+        <string>--mode</string>
+        <string>closing</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>SCRIPT_PATH</string>
+    
+    <key>StartCalendarInterval</key>
+    <dict>
+        <!-- Run at 5:55 PM Mon-Fri (5 min after GitHub Action) -->
+        <key>Hour</key>
+        <integer>17</integer>
+        <key>Minute</key>
+        <integer>55</integer>
+    </dict>
+    
+    <key>StandardOutPath</key>
+    <string>/tmp/logbook-enrichment-closing.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/tmp/logbook-enrichment-closing.error.log</string>
+    
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+</dict>
+</plist>
+

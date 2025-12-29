@@ -117,14 +117,59 @@ If you need to manually extract the token:
 
 ```
 scripts/
-├── logbook-local.py      # Main script
+├── logbook-local.py      # Full local replacement script
+├── slack-enrichment.py   # Thread enrichment (runs after GitHub Actions)
 ├── env.example           # Configuration template
-├── setup-local.sh        # Setup/installation script
+├── setup-local.sh        # Setup for full local mode
+├── setup-enrichment.sh   # Setup for GitHub Actions + local enrichment
 ├── README.md             # This file
 └── launchd/              # macOS scheduler configs
     ├── com.logbook.briefing.plist
     ├── com.logbook.closing.plist
-    └── com.logbook.weekly.plist
+    ├── com.logbook.weekly.plist
+    └── com.logbook.enrichment.*.plist  # Thread enrichment jobs
+```
+
+## 🔄 Hybrid Mode: GitHub Actions + Local Slack Enrichment
+
+Want the best of both worlds? Run **GitHub Actions** for the main report (visible in your portfolio) plus **local enrichment** that adds Slack context to the same thread.
+
+### How it works:
+
+```
+8:30 AM  │  GitHub Actions runs → Posts Daily Briefing to Slack
+         │
+8:35 AM  │  Local enrichment runs → Replies to the SAME thread with:
+         │  • Slack activity summary (if user token available)
+         │  • Prompt to engage @Cursor for full Slack analysis
+```
+
+### Setup Hybrid Mode:
+
+```bash
+# Make setup executable
+chmod +x scripts/setup-enrichment.sh
+
+# Run setup (installs launchd agents)
+./scripts/setup-enrichment.sh
+```
+
+This keeps everything in **one clean thread**:
+```
+📨 Logbook (8:30 AM)
+└── ☀️ Daily Briefing — Monday, December 29, 2025
+    └── 💬 Slack Context (8:35 AM)
+        └── Reply @Cursor to analyze your Slack activity
+```
+
+### Test Manually:
+
+```bash
+# Dry run (won't post)
+python3 scripts/slack-enrichment.py --mode briefing --dry-run
+
+# Actually post
+python3 scripts/slack-enrichment.py --mode briefing
 ```
 
 ## 🔧 Customization
