@@ -17,7 +17,7 @@ Configuration:
     Copy .env.example to .env and fill in your credentials.
     See README in scripts/ folder for detailed setup.
 
-For Slack MCP users (Nubank):
+For Slack MCP users:
     The script can read tokens from the Slack MCP OAuth flow.
     Set SLACK_MCP_TOKEN_PATH in .env to your MCP's token location.
 """

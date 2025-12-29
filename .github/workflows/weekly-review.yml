@@ -2,27 +2,16 @@
 name: Weekly Review
 
 # AI-powered weekly review with accomplishments and planning insights
-# Customize the schedule, LLM provider, and integrations below
+# Requires secrets: ATLASSIAN_*, LLM_*, SLACK_*
 
 on:
   schedule:
-    # Default: Friday 3:00 PM UTC - Adjust for your timezone
-    # Examples: EST = 20:00 UTC, PST = 23:00 UTC, BRT = 18:00 UTC
-    - cron: '0 15 * * 5'
-  workflow_dispatch:  # Allow manual trigger
+    # Friday 3:00 PM BRT (18:00 UTC)
+    - cron: '0 18 * * 5'
+  workflow_dispatch:
 
-# =============================================================================
-# CONFIGURATION - Customize these for your setup
-# =============================================================================
 env:
-  # Atlassian Configuration (optional - set to empty to skip)
-  ATLASSIAN_DOMAIN: ""  # e.g., "your-company.atlassian.net"
-  JIRA_PROJECT: ""      # e.g., "PROJ" - your Jira project key
-  CONFLUENCE_SPACES: "" # e.g., "TEAM,DOCS" - comma-separated space keys
-  
-  # LLM Configuration
-  # Supports any OpenAI-compatible API (OpenAI, Azure, Anthropic proxy, local LLMs)
-  LLM_MODEL: "gpt-4"    # Model to use for AI analysis
+  LLM_MODEL: "gpt-4o-mini"
 
 jobs:
   weekly-review:
@@ -32,179 +21,166 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history for commit analysis
+          fetch-depth: 0  # Full history for git log
 
       # ============================================
-      # STEP 1: GATHER DATA (Last 7 days)
+      # STEP 1: GATHER WEEKLY DATA
       # ============================================
       
-      - name: Fetch Jira Activity (Optional)
+      - name: Fetch Jira Weekly Activity
         id: jira
-        if: ${{ env.ATLASSIAN_DOMAIN != '' && env.JIRA_PROJECT != '' }}
+        continue-on-error: true
+        env:
+          ATLASSIAN_DOMAIN: ${{ secrets.ATLASSIAN_DOMAIN }}
+          ATLASSIAN_EMAIL: ${{ secrets.ATLASSIAN_EMAIL }}
+          ATLASSIAN_API_TOKEN: ${{ secrets.ATLASSIAN_API_TOKEN }}
+          JIRA_PROJECT: ${{ secrets.JIRA_PROJECT }}
         run: |
+          if [ -z "$ATLASSIAN_DOMAIN" ] || [ -z "$JIRA_PROJECT" ]; then
+            echo "jira_data=_Jira not configured_" >> $GITHUB_OUTPUT
+            echo "jira_count=0" >> $GITHUB_OUTPUT
+            echo "resolved_count=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
           echo "Fetching weekly Jira activity..."
           
           WEEK_AGO=$(date -u -d '7 days ago' +%Y-%m-%d 2>/dev/null || date -u -v-7d +%Y-%m-%d)
-          JQL="project = ${{ env.JIRA_PROJECT }} AND updated >= '$WEEK_AGO' AND (assignee = currentUser() OR reporter = currentUser()) ORDER BY updated DESC"
+          
+          # Get all touched tickets
+          JQL="project = ${JIRA_PROJECT} AND updated >= '${WEEK_AGO}' ORDER BY updated DESC"
           JQL_ENCODED=$(echo "$JQL" | jq -sRr @uri)
           
-          JIRA_RESPONSE=$(curl -s -u "${{ secrets.ATLASSIAN_EMAIL }}:${{ secrets.ATLASSIAN_API_TOKEN }}" \
-            "https://${{ env.ATLASSIAN_DOMAIN }}/rest/api/3/search?jql=${JQL_ENCODED}&maxResults=50&fields=key,summary,status,resolutiondate" \
+          JIRA_RESPONSE=$(curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+            "https://${ATLASSIAN_DOMAIN}/rest/api/3/search?jql=${JQL_ENCODED}&maxResults=50&fields=key,summary,status,updated,resolution" \
             2>/dev/null || echo '{"issues":[]}')
           
           JIRA_COUNT=$(echo "$JIRA_RESPONSE" | jq -r '.issues | length' 2>/dev/null || echo "0")
-          RESOLVED_COUNT=$(echo "$JIRA_RESPONSE" | jq -r '[.issues[] | select(.fields.resolutiondate != null)] | length' 2>/dev/null || echo "0")
+          RESOLVED_COUNT=$(echo "$JIRA_RESPONSE" | jq -r '[.issues[]? | select(.fields.resolution != null)] | length' 2>/dev/null || echo "0")
           
-          JIRA_ISSUES=""
-          if [ "$JIRA_COUNT" != "0" ]; then
-            while IFS= read -r line; do
-              KEY=$(echo "$line" | jq -r '.key')
-              SUMMARY=$(echo "$line" | jq -r '.fields.summary' | cut -c1-50)
-              STATUS=$(echo "$line" | jq -r '.fields.status.name')
-              JIRA_ISSUES="${JIRA_ISSUES}• *${KEY}*: ${SUMMARY}... [${STATUS}]\n"
-            done < <(echo "$JIRA_RESPONSE" | jq -c '.issues[]' | head -15)
-            
-            if [ "$JIRA_COUNT" -gt 15 ]; then
-              JIRA_ISSUES="${JIRA_ISSUES}_...and $((JIRA_COUNT - 15)) more_\n"
-            fi
-          else
+          JIRA_ISSUES=$(echo "$JIRA_RESPONSE" | jq -r '.issues[]? | "• \(.key): \(.fields.summary) [\(.fields.status.name)]"' 2>/dev/null || echo "")
+          
+          if [ -z "$JIRA_ISSUES" ] || [ "$JIRA_COUNT" = "0" ]; then
             JIRA_ISSUES="_No Jira activity this week_"
           fi
           
           echo "jira_data<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$JIRA_ISSUES" >> $GITHUB_OUTPUT
+          echo "$JIRA_ISSUES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           echo "jira_count=$JIRA_COUNT" >> $GITHUB_OUTPUT
           echo "resolved_count=$RESOLVED_COUNT" >> $GITHUB_OUTPUT
 
-      - name: Fetch Confluence Activity (Optional)
+      - name: Fetch Confluence Weekly Activity
         id: confluence
-        if: ${{ env.ATLASSIAN_DOMAIN != '' && env.CONFLUENCE_SPACES != '' }}
+        continue-on-error: true
+        env:
+          ATLASSIAN_DOMAIN: ${{ secrets.ATLASSIAN_DOMAIN }}
+          ATLASSIAN_EMAIL: ${{ secrets.ATLASSIAN_EMAIL }}
+          ATLASSIAN_API_TOKEN: ${{ secrets.ATLASSIAN_API_TOKEN }}
+          CONFLUENCE_SPACES: ${{ secrets.CONFLUENCE_SPACES }}
         run: |
+          if [ -z "$ATLASSIAN_DOMAIN" ] || [ -z "$CONFLUENCE_SPACES" ]; then
+            echo "confluence_data=_Confluence not configured_" >> $GITHUB_OUTPUT
+            echo "confluence_count=0" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
           echo "Fetching weekly Confluence activity..."
           
-          SPACES="${{ env.CONFLUENCE_SPACES }}"
           ALL_PAGES=""
-          PAGE_COUNT=0
+          TOTAL_COUNT=0
+          WEEK_AGO=$(date -u -d '7 days ago' +%Y-%m-%dT00:00:00 2>/dev/null || date -u -v-7d +%Y-%m-%dT00:00:00)
           
-          for SPACE in $(echo $SPACES | tr ',' ' '); do
-            RESPONSE=$(curl -s -u "${{ secrets.ATLASSIAN_EMAIL }}:${{ secrets.ATLASSIAN_API_TOKEN }}" \
-              "https://${{ env.ATLASSIAN_DOMAIN }}/wiki/rest/api/content?spaceKey=${SPACE}&expand=history.lastUpdated&limit=30&orderby=modified desc" \
+          for SPACE in $(echo $CONFLUENCE_SPACES | tr ',' ' '); do
+            RESPONSE=$(curl -s -u "${ATLASSIAN_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+              "https://${ATLASSIAN_DOMAIN}/wiki/rest/api/content?spaceKey=${SPACE}&expand=history.lastUpdated&limit=30&orderby=history.lastUpdated%20desc" \
               2>/dev/null || echo '{"results":[]}')
             
-            USER_EMAIL="${{ secrets.ATLASSIAN_EMAIL }}"
-            WEEK_AGO=$(date -u -d '7 days ago' +%Y-%m-%d 2>/dev/null || date -u -v-7d +%Y-%m-%d)
-            
-            PAGES=$(echo "$RESPONSE" | jq -r --arg email "$USER_EMAIL" --arg weekago "$WEEK_AGO" \
-              '.results[]? | select(.history.lastUpdated.when >= $weekago) | select(.history.lastUpdated.by.email == $email) | "• *\(.title)*"' \
-              2>/dev/null || echo "")
+            PAGES=$(echo "$RESPONSE" | jq -r --arg week_ago "$WEEK_AGO" \
+              '.results[]? | select(.history.lastUpdated.when > $week_ago) | "• \(.title)"' 2>/dev/null || echo "")
             
             if [ -n "$PAGES" ]; then
               ALL_PAGES="${ALL_PAGES}${PAGES}\n"
-              PAGE_COUNT=$((PAGE_COUNT + $(echo "$PAGES" | grep -c "•" || echo 0)))
+              COUNT=$(echo "$PAGES" | grep -c "•" || echo "0")
+              TOTAL_COUNT=$((TOTAL_COUNT + COUNT))
             fi
           done
           
-          if [ -z "$ALL_PAGES" ] || [ "$PAGE_COUNT" = "0" ]; then
+          if [ -z "$ALL_PAGES" ] || [ "$TOTAL_COUNT" = "0" ]; then
             ALL_PAGES="_No Confluence edits this week_"
           fi
           
           echo "confluence_data<<EOF" >> $GITHUB_OUTPUT
           echo -e "$ALL_PAGES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-          echo "confluence_count=$PAGE_COUNT" >> $GITHUB_OUTPUT
+          echo "confluence_count=$TOTAL_COUNT" >> $GITHUB_OUTPUT
 
-      - name: Set Default Values for Skipped Steps
-        id: defaults
-        run: |
-          echo "jira_data<<EOF" >> $GITHUB_OUTPUT
-          echo "${JIRA_DATA:-_Jira integration not configured_}" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "jira_count=${JIRA_COUNT:-0}" >> $GITHUB_OUTPUT
-          echo "resolved_count=${RESOLVED_COUNT:-0}" >> $GITHUB_OUTPUT
-          
-          echo "confluence_data<<EOF" >> $GITHUB_OUTPUT
-          echo "${CONFLUENCE_DATA:-_Confluence integration not configured_}" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "confluence_count=${CONFLUENCE_COUNT:-0}" >> $GITHUB_OUTPUT
-        env:
-          JIRA_DATA: ${{ steps.jira.outputs.jira_data }}
-          JIRA_COUNT: ${{ steps.jira.outputs.jira_count }}
-          RESOLVED_COUNT: ${{ steps.jira.outputs.resolved_count }}
-          CONFLUENCE_DATA: ${{ steps.confluence.outputs.confluence_data }}
-          CONFLUENCE_COUNT: ${{ steps.confluence.outputs.confluence_count }}
+      # Note: Slack message fetching requires user token (restricted in many companies)
+      # For full Slack access, use the local script: scripts/logbook-local.py
 
-      - name: Analyze Git Activity
+      - name: Get Git Activity
         id: git_activity
         run: |
-          WEEK_AGO=$(date -d '7 days ago' +%Y-%m-%d 2>/dev/null || date -v-7d +%Y-%m-%d 2>/dev/null || echo "")
+          WEEK_AGO=$(date -u -d '7 days ago' +%Y-%m-%d 2>/dev/null || date -u -v-7d +%Y-%m-%d)
           
-          if [ -n "$WEEK_AGO" ]; then
-            COMMITS_COUNT=$(git log --since="$WEEK_AGO" --oneline -- 'Tasks/*.md' 2>/dev/null | wc -l | tr -d ' ')
-            MODIFIED_FILES=$(git log --since="$WEEK_AGO" --name-only --pretty=format: -- 'Tasks/*.md' 2>/dev/null | sort -u | grep -v '^$' | wc -l | tr -d ' ')
-          else
-            COMMITS_COUNT=0
-            MODIFIED_FILES=0
-          fi
+          # Count commits to Tasks folder
+          COMMITS_COUNT=$(git log --since="$WEEK_AGO" --oneline -- Tasks/ 2>/dev/null | wc -l | tr -d ' ')
           
           echo "commits_count=$COMMITS_COUNT" >> $GITHUB_OUTPUT
-          echo "modified_files=$MODIFIED_FILES" >> $GITHUB_OUTPUT
 
-      - name: Read Current Tasks
+      - name: Read All Tasks
         id: tasks
         run: |
-          # Counts
+          # Count by status and priority
           P0_COUNT=$(grep -l "priority: P0" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
           P1_COUNT=$(grep -l "priority: P1" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
           BLOCKED_COUNT=$(grep -l "status: b" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
           DONE_COUNT=$(grep -l "status: d" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
-          TOTAL=$(find Tasks -name "*.md" ! -name "README.md" 2>/dev/null | wc -l | tr -d ' ')
+          TOTAL=$(ls Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
           
-          # P0 Tasks
-          P0_TASKS=""
+          # Get task details
+          TASK_DETAILS=""
+          for file in Tasks/*.md; do
+            [ -f "$file" ] || continue
+            
+            TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
+            PRIORITY=$(grep "^priority:" "$file" | sed 's/priority: //' | head -1)
+            STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+            
+            case $STATUS in
+              n) STATUS_TEXT="Not Started"; STATUS_EMOJI="🔴" ;;
+              s|ip) STATUS_TEXT="In Progress"; STATUS_EMOJI="🟡" ;;
+              b) STATUS_TEXT="Blocked"; STATUS_EMOJI="🟠" ;;
+              d) STATUS_TEXT="Done"; STATUS_EMOJI="✅" ;;
+              *) STATUS_TEXT="Unknown"; STATUS_EMOJI="⚪" ;;
+            esac
+            
+            TASK_DETAILS="${TASK_DETAILS}• ${STATUS_EMOJI} [${PRIORITY}] ${TITLE} — ${STATUS_TEXT}\n"
+          done
+          
+          # P0 tasks - separated by status (no emoji on each line)
+          P0_NOT_STARTED=""
+          P0_IN_PROGRESS=""
           for file in $(grep -l "priority: P0" Tasks/*.md 2>/dev/null || echo ""); do
             TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
             STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
             case $STATUS in
-              n) STATUS_TEXT="🔴 Not Started" ;;
-              s|ip) STATUS_TEXT="🟡 In Progress" ;;
-              b) STATUS_TEXT="🟠 Blocked" ;;
-              d) STATUS_TEXT="✅ Done" ;;
-              *) STATUS_TEXT="⚪ Unknown" ;;
+              n) P0_NOT_STARTED="${P0_NOT_STARTED}• ${TITLE}\n" ;;
+              s|ip|b) P0_IN_PROGRESS="${P0_IN_PROGRESS}• ${TITLE}\n" ;;
             esac
-            P0_TASKS="${P0_TASKS}• *${TITLE}* — ${STATUS_TEXT}\n"
           done
           
-          # Blocked Tasks
-          BLOCKED_TASKS=""
-          for file in $(grep -l "status: b" Tasks/*.md 2>/dev/null || echo ""); do
-            TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
-            BLOCKED_TASKS="${BLOCKED_TASKS}• 🟠 ${TITLE}\n"
-          done
-          
-          # Done Tasks (ready to archive)
-          DONE_TASKS=""
-          for file in $(grep -l "status: d" Tasks/*.md 2>/dev/null || echo ""); do
-            TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
-            DONE_TASKS="${DONE_TASKS}• ✅ ${TITLE}\n"
-          done
-          
-          # Full task list for AI
-          TASK_DETAILS=""
-          for file in Tasks/*.md; do
-            [ -f "$file" ] || continue
-            [ "$(basename "$file")" = "README.md" ] && continue
-            TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
-            PRIORITY=$(grep "^priority:" "$file" | sed 's/priority: //' | head -1)
-            STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
-            case $STATUS in n) ST="Not Started" ;; s|ip) ST="In Progress" ;; b) ST="Blocked" ;; d) ST="Done" ;; *) ST="Unknown" ;; esac
-            TASK_DETAILS="${TASK_DETAILS}- ${TITLE} | ${PRIORITY} | ${ST}\n"
-          done
-          
-          # Backlog check
-          BACKLOG_ITEMS=0
+          # Check backlog
+          BACKLOG_ITEMS=""
           if [ -f "BACKLOG.md" ]; then
-            BACKLOG_ITEMS=$(grep "^-" BACKLOG.md 2>/dev/null | wc -l | tr -d ' ')
+            BACKLOG_LINES=$(grep -c "^-\|^\*\|^[0-9]" BACKLOG.md 2>/dev/null || echo "0")
+            if [ "$BACKLOG_LINES" -gt 0 ]; then
+              BACKLOG_ITEMS="$BACKLOG_LINES items pending"
+            else
+              BACKLOG_ITEMS="✅ Clear!"
+            fi
+          else
+            BACKLOG_ITEMS="✅ Clear!"
           fi
           
           # Outputs
@@ -215,24 +191,20 @@ jobs:
           echo "total=$TOTAL" >> $GITHUB_OUTPUT
           echo "backlog_items=$BACKLOG_ITEMS" >> $GITHUB_OUTPUT
           
-          echo "p0_tasks<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$P0_TASKS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          
-          echo "blocked_tasks<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$BLOCKED_TASKS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          
-          echo "done_tasks<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$DONE_TASKS" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          
           echo "task_details<<EOF" >> $GITHUB_OUTPUT
           echo -e "$TASK_DETAILS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "p0_not_started<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$P0_NOT_STARTED" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "p0_in_progress<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$P0_IN_PROGRESS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       # ============================================
-      # STEP 2: AI ANALYSIS (Optional - requires LLM_API secrets)
+      # STEP 2: AI ANALYSIS
       # ============================================
       
       - name: Generate AI Weekly Insights
@@ -241,141 +213,139 @@ jobs:
         env:
           LLM_API_URL: ${{ secrets.LLM_API_URL }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_MODEL: ${{ env.LLM_MODEL }}
-          JIRA_COUNT: ${{ steps.defaults.outputs.jira_count }}
-          RESOLVED_COUNT: ${{ steps.defaults.outputs.resolved_count }}
-          CONFLUENCE_COUNT: ${{ steps.defaults.outputs.confluence_count }}
+          LLM_MODEL_SECRET: ${{ secrets.LLM_MODEL }}
+          JIRA_COUNT: ${{ steps.jira.outputs.jira_count }}
+          RESOLVED_COUNT: ${{ steps.jira.outputs.resolved_count }}
+          CONFLUENCE_COUNT: ${{ steps.confluence.outputs.confluence_count }}
           COMMITS_COUNT: ${{ steps.git_activity.outputs.commits_count }}
           P0_COUNT: ${{ steps.tasks.outputs.p0_count }}
           P1_COUNT: ${{ steps.tasks.outputs.p1_count }}
           BLOCKED_COUNT: ${{ steps.tasks.outputs.blocked_count }}
           DONE_COUNT: ${{ steps.tasks.outputs.done_count }}
           TOTAL_TASKS: ${{ steps.tasks.outputs.total }}
-          TASK_DETAILS: ${{ steps.tasks.outputs.task_details }}
           BACKLOG_ITEMS: ${{ steps.tasks.outputs.backlog_items }}
+          TASK_DETAILS: ${{ steps.tasks.outputs.task_details }}
         run: |
-          # Build prompt using heredoc (avoids YAML parsing issues)
-          read -r -d '' CONTEXT << 'PROMPT_END' || true
-          You are a productivity coach helping someone reflect on their week.
+          MODEL="${LLM_MODEL_SECRET:-${{ env.LLM_MODEL }}}"
           
-          Provide a brief weekly reflection covering:
-          1. *Key Accomplishments* - What meaningful progress was made?
-          2. *Attention Needed* - Any blocked tasks or stale items?
-          3. *Next Week Focus* - Based on P0/P1, what should be the main focus?
-          4. *Housekeeping* - Any tasks to archive, cancel, or backlog to process?
+          if [ -z "$LLM_API_KEY" ]; then
+            echo "suggestions=_AI analysis not configured. Add LLM_API_KEY secret._" >> $GITHUB_OUTPUT
+            exit 0
+          fi
           
-          Keep it concise and motivating. Use Slack mrkdwn formatting.
+          # Build prompt using heredoc
+          read -r -d '' PROMPT << 'PROMPT_END' || true
+          You are a productivity coach helping a Product Manager reflect on their week.
+          Provide a brief weekly reflection covering key accomplishments, attention needed,
+          next week focus, and housekeeping items.
+          Keep it concise and motivating. Use Slack mrkdwn formatting (bold with *, bullets with •).
           PROMPT_END
           
-          # Append dynamic data
-          CONTEXT="$CONTEXT
+          PROMPT="$PROMPT
 
-          Week Ending: $(date +'%B %d, %Y')
+          WEEK ENDING: $(date +'%B %d, %Y')
           
-          Weekly Activity:
-          - Jira tickets touched: $JIRA_COUNT
-          - Jira tickets resolved: $RESOLVED_COUNT
-          - Confluence pages edited: $CONFLUENCE_COUNT
-          - Task file commits: $COMMITS_COUNT
+          Activity: Jira $JIRA_COUNT touched / $RESOLVED_COUNT resolved | Confluence $CONFLUENCE_COUNT | Commits $COMMITS_COUNT
+          Tasks: P0=$P0_COUNT P1=$P1_COUNT Blocked=$BLOCKED_COUNT Done=$DONE_COUNT Total=$TOTAL_TASKS
+          Backlog: $BACKLOG_ITEMS
           
-          Current Task Status:
-          - P0 (Critical): $P0_COUNT
-          - P1 (This Week): $P1_COUNT
-          - Blocked: $BLOCKED_COUNT
-          - Done (ready to archive): $DONE_COUNT
-          - Total Active: $TOTAL_TASKS
-          
-          All Tasks: $TASK_DETAILS
-          
-          Backlog Items: $BACKLOG_ITEMS"
-          
-          # Call LLM API
+          All Tasks: $TASK_DETAILS"
+
           API_URL="${LLM_API_URL:-https://api.openai.com}"
+          
+          echo "Calling LLM API at $API_URL..."
           
           AI_RESPONSE=$(curl -s -X POST "${API_URL}/v1/chat/completions" \
             -H "Authorization: Bearer $LLM_API_KEY" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n --arg context "$CONTEXT" --arg model "$LLM_MODEL" \
-              '{"model": $model, "messages": [{"role": "user", "content": $context}], "max_tokens": 700, "temperature": 0.7}')" \
-            2>/dev/null || echo '{"choices":[{"message":{"content":"_AI analysis unavailable_"}}]}')
+            -d "$(jq -n --arg prompt "$PROMPT" --arg model "$MODEL" \
+              '{
+                "model": $model,
+                "messages": [{"role": "user", "content": $prompt}],
+                "max_tokens": 700,
+                "temperature": 0.7
+              }')" 2>&1)
           
-          AI_INSIGHTS=$(echo "$AI_RESPONSE" | jq -r '.choices[0].message.content // "_AI analysis unavailable_"')
+          echo "API Response: $AI_RESPONSE"
           
-          echo "insights<<EOF" >> $GITHUB_OUTPUT
-          echo "$AI_INSIGHTS" >> $GITHUB_OUTPUT
+          AI_SUGGESTIONS=$(echo "$AI_RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+          
+          if [ -z "$AI_SUGGESTIONS" ]; then
+            ERROR_MSG=$(echo "$AI_RESPONSE" | jq -r '.error.message // empty' 2>/dev/null)
+            if [ -n "$ERROR_MSG" ]; then
+              AI_SUGGESTIONS="_AI error: ${ERROR_MSG}_"
+            else
+              AI_SUGGESTIONS="_AI analysis unavailable_"
+            fi
+          fi
+          
+          echo "suggestions<<EOF" >> $GITHUB_OUTPUT
+          echo "$AI_SUGGESTIONS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Set AI Default if Skipped
-        id: ai_defaults
-        run: |
-          if [ -z "$AI_INSIGHTS" ]; then
-            echo "insights<<EOF" >> $GITHUB_OUTPUT
-            echo "_AI analysis not configured. Add LLM_API_KEY secret to enable._" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          else
-            echo "insights<<EOF" >> $GITHUB_OUTPUT
-            echo "$AI_INSIGHTS" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          fi
-        env:
-          AI_INSIGHTS: ${{ steps.ai_analysis.outputs.insights }}
-
       # ============================================
-      # STEP 3: POST TO SLACK
+      # STEP 3: BUILD AND SEND REPORT
       # ============================================
       
       - name: Build Slack Message
         id: report
+        env:
+          JIRA_COUNT: ${{ steps.jira.outputs.jira_count }}
+          RESOLVED_COUNT: ${{ steps.jira.outputs.resolved_count }}
+          CONFLUENCE_COUNT: ${{ steps.confluence.outputs.confluence_count }}
+          COMMITS_COUNT: ${{ steps.git_activity.outputs.commits_count }}
+          P0_COUNT: ${{ steps.tasks.outputs.p0_count }}
+          P1_COUNT: ${{ steps.tasks.outputs.p1_count }}
+          BLOCKED_COUNT: ${{ steps.tasks.outputs.blocked_count }}
+          DONE_COUNT: ${{ steps.tasks.outputs.done_count }}
+          TOTAL_TASKS: ${{ steps.tasks.outputs.total }}
+          P0_NOT_STARTED: ${{ steps.tasks.outputs.p0_not_started }}
+          P0_IN_PROGRESS: ${{ steps.tasks.outputs.p0_in_progress }}
+          BACKLOG_ITEMS: ${{ steps.tasks.outputs.backlog_items }}
+          AI_SUGGESTIONS: ${{ steps.ai_analysis.outputs.suggestions }}
         run: |
-          REPORT="*📋 Weekly Review — Week of $(date +'%B %d, %Y')*\n\n"
+          REPORT="*📅 Weekly Review — Week of $(date +'%B %d, %Y')*\n\n"
           
-          # Activity Summary
-          REPORT+="*📊 This Week's Activity*\n"
-          REPORT+="• 📋 Jira: *${{ steps.defaults.outputs.jira_count }}* touched, *${{ steps.defaults.outputs.resolved_count }}* resolved\n"
-          REPORT+="• 📝 Confluence: *${{ steps.defaults.outputs.confluence_count }}* pages edited\n"
-          REPORT+="• 📁 Task commits: *${{ steps.git_activity.outputs.commits_count }}*\n\n"
+          # This Week's Activity
+          REPORT+="*📈 This Week's Activity*\n"
+          REPORT+="• 📋 Jira: *${JIRA_COUNT:-0}* touched, *${RESOLVED_COUNT:-0}* resolved\n"
+          REPORT+="• 📝 Confluence: *${CONFLUENCE_COUNT:-0}* pages edited\n"
+          REPORT+="• 💬 Slack: _Reply @Cursor for context_\n"
+          REPORT+="• 📁 Task commits: *${COMMITS_COUNT:-0}*\n\n"
           
           # Task Overview
-          REPORT+="*📈 Task Overview*\n"
-          REPORT+="• 🚨 P0 (Critical): *${{ steps.tasks.outputs.p0_count }}*\n"
-          REPORT+="• ⚡ P1 (This Week): *${{ steps.tasks.outputs.p1_count }}*\n"
-          REPORT+="• 🟠 Blocked: *${{ steps.tasks.outputs.blocked_count }}*\n"
-          REPORT+="• ✅ Done: *${{ steps.tasks.outputs.done_count }}*\n"
-          REPORT+="• Total Active: *${{ steps.tasks.outputs.total }}*\n\n"
+          REPORT+="*📋 Task Overview*\n"
+          REPORT+="• 🚨 P0 (Critical): *${P0_COUNT:-0}*\n"
+          REPORT+="• ⚡ P1 (This Week): *${P1_COUNT:-0}*\n"
+          REPORT+="• 🟠 Blocked: *${BLOCKED_COUNT:-0}*\n"
+          REPORT+="• ✅ Done: *${DONE_COUNT:-0}*\n"
+          REPORT+="• 📊 Total Active: *${TOTAL_TASKS:-0}*\n\n"
           
-          # P0 Tasks
-          if [ "${{ steps.tasks.outputs.p0_count }}" -gt 0 ]; then
+          # P0 Tasks - grouped by status
+          if [ "${P0_COUNT:-0}" -gt 0 ]; then
             REPORT+="*🚨 P0 Tasks*\n"
-            REPORT+="${{ steps.tasks.outputs.p0_tasks }}\n"
+            if [ -n "$P0_NOT_STARTED" ] && [ "$P0_NOT_STARTED" != "\n" ]; then
+              REPORT+="*🔴 Not started*\n"
+              REPORT+="${P0_NOT_STARTED}"
+            fi
+            if [ -n "$P0_IN_PROGRESS" ] && [ "$P0_IN_PROGRESS" != "\n" ]; then
+              REPORT+="*🟡 In Progress*\n"
+              REPORT+="${P0_IN_PROGRESS}"
+            fi
+            REPORT+="\n"
           fi
           
-          # Blocked Warning
-          if [ "${{ steps.tasks.outputs.blocked_count }}" -gt 0 ]; then
-            REPORT+="*⚠️ Blocked Tasks*\n"
-            REPORT+="${{ steps.tasks.outputs.blocked_tasks }}\n"
-          fi
-          
-          # Ready to Archive
-          if [ "${{ steps.tasks.outputs.done_count }}" -gt 0 ]; then
-            REPORT+="*🗂️ Ready to Archive*\n"
-            REPORT+="${{ steps.tasks.outputs.done_tasks }}\n"
-          fi
-          
-          # Backlog Status
-          if [ "${{ steps.tasks.outputs.backlog_items }}" -gt 0 ]; then
-            REPORT+="*📥 Backlog*: ⚠️ *${{ steps.tasks.outputs.backlog_items }}* items waiting\n\n"
-          else
-            REPORT+="*📥 Backlog*: ✅ Clear!\n\n"
-          fi
+          # Backlog
+          REPORT+="*📥 Backlog:* ${BACKLOG_ITEMS}\n\n"
           
           REPORT+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
           
           # AI Insights
           REPORT+="*💡 AI Weekly Insights*\n"
-          REPORT+="${{ steps.ai_defaults.outputs.insights }}\n\n"
+          REPORT+="${AI_SUGGESTIONS:-_AI analysis not available_}\n\n"
           
           REPORT+="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-          REPORT+="_Open your AI assistant and say \"weekly review\" for full interactive reflection_"
+          REPORT+="_Reply @Cursor for full interactive weekly reflection_"
           
           echo "report<<EOF" >> $GITHUB_OUTPUT
           echo -e "$REPORT" >> $GITHUB_OUTPUT
