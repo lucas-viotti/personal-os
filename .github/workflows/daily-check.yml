@@ -1,20 +1,10 @@
 name: Daily Task Check
 
-# Automated daily task summary sent to Slack
-# Configure your timezone by adjusting the cron schedule
-
 on:
   schedule:
-    # Default: 6:00 PM UTC (adjust for your timezone)
-    # Examples:
-    #   6:00 PM EST = 23:00 UTC → '0 23 * * 1-5'
-    #   6:00 PM PST = 02:00 UTC → '0 2 * * 2-6'
-    #   6:00 PM BRT = 21:00 UTC → '0 21 * * 1-5'
-    - cron: '0 21 * * 1-5'  # Monday-Friday
-  workflow_dispatch:  # Allow manual trigger for testing
-
-env:
-  TZ: UTC  # Set your timezone for date formatting
+    # 6:00 PM BRT = 21:00 UTC (Monday-Friday)
+    - cron: '0 21 * * 1-5'
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
   daily-report:
@@ -27,9 +17,6 @@ jobs:
       - name: Generate Daily Report
         id: report
         run: |
-          echo "## 🌅 Daily Task Check — $(date +'%B %d, %Y')" > report.md
-          echo "" >> report.md
-          
           # Count tasks by status
           TOTAL=$(find Tasks -name "*.md" ! -name "README.md" 2>/dev/null | wc -l | tr -d ' ')
           NOT_STARTED=$(grep -l "status: n" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
@@ -37,20 +24,19 @@ jobs:
           BLOCKED=$(grep -l "status: b" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
           IN_PROGRESS=$(grep -l "status: ip" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
           
-          echo "### 📊 Task Summary" >> report.md
-          echo "| Status | Count |" >> report.md
-          echo "|--------|-------|" >> report.md
-          echo "| 🔴 Not Started | $NOT_STARTED |" >> report.md
-          echo "| 🟡 In Progress | $((STARTED + IN_PROGRESS)) |" >> report.md
-          echo "| 🟠 Blocked | $BLOCKED |" >> report.md
-          echo "| **Total Active** | $TOTAL |" >> report.md
-          echo "" >> report.md
+          # Build Slack-formatted message
+          REPORT="*🌅 Daily Task Check — $(date +'%B %d, %Y')*\n\n"
+          REPORT+="*📊 Task Summary*\n"
+          REPORT+="• 🔴 Not Started: *$NOT_STARTED*\n"
+          REPORT+="• 🟡 In Progress: *$((STARTED + IN_PROGRESS))*\n"
+          REPORT+="• 🟠 Blocked: *$BLOCKED*\n"
+          REPORT+="• Total Active: *$TOTAL*\n\n"
           
-          # List P0 tasks (Critical)
-          echo "### 🚨 P0 Tasks (Do Today)" >> report.md
+          # P0 Tasks
+          REPORT+="*🚨 P0 Tasks (Do Today)*\n"
           P0_TASKS=$(grep -l "priority: P0" Tasks/*.md 2>/dev/null || echo "")
           if [ -z "$P0_TASKS" ]; then
-            echo "_No P0 tasks_" >> report.md
+            REPORT+="_No P0 tasks_\n"
           else
             for file in $P0_TASKS; do
               TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
@@ -62,16 +48,16 @@ jobs:
                 d) STATUS_EMOJI="✅" ;;
                 *) STATUS_EMOJI="⚪" ;;
               esac
-              echo "- $STATUS_EMOJI $TITLE" >> report.md
+              REPORT+="• $STATUS_EMOJI $TITLE\n"
             done
           fi
-          echo "" >> report.md
+          REPORT+="\n"
           
-          # List P1 tasks (This Week)
-          echo "### ⚡ P1 Tasks (This Week)" >> report.md
+          # P1 Tasks
+          REPORT+="*⚡ P1 Tasks (This Week)*\n"
           P1_TASKS=$(grep -l "priority: P1" Tasks/*.md 2>/dev/null || echo "")
           if [ -z "$P1_TASKS" ]; then
-            echo "_No P1 tasks_" >> report.md
+            REPORT+="_No P1 tasks_\n"
           else
             for file in $P1_TASKS; do
               TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
@@ -83,30 +69,27 @@ jobs:
                 d) STATUS_EMOJI="✅" ;;
                 *) STATUS_EMOJI="⚪" ;;
               esac
-              echo "- $STATUS_EMOJI $TITLE" >> report.md
+              REPORT+="• $STATUS_EMOJI $TITLE\n"
             done
           fi
-          echo "" >> report.md
+          REPORT+="\n"
           
-          # Highlight blocked tasks
+          # Blocked tasks warning
           if [ "$BLOCKED" -gt 0 ]; then
-            echo "### ⚠️ Blocked Tasks (Need Attention)" >> report.md
+            REPORT+="*⚠️ Blocked Tasks*\n"
             BLOCKED_TASKS=$(grep -l "status: b" Tasks/*.md 2>/dev/null || echo "")
             for file in $BLOCKED_TASKS; do
               TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
-              echo "- 🟠 $TITLE" >> report.md
+              REPORT+="• 🟠 $TITLE\n"
             done
-            echo "" >> report.md
+            REPORT+="\n"
           fi
           
-          echo "---" >> report.md
-          echo "_Reply to update tasks or say \"nothing changed\"_" >> report.md
+          REPORT+="---\n_Open Cursor and say \"daily check\" to update tasks_"
           
-          # Output for Slack
-          REPORT_CONTENT=$(cat report.md)
-          echo "report<<EOF" >> $GITHUB_OUTPUT
-          echo "$REPORT_CONTENT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          # Escape for JSON
+          REPORT_ESCAPED=$(echo -e "$REPORT" | jq -Rs .)
+          echo "report=$REPORT_ESCAPED" >> $GITHUB_OUTPUT
 
       - name: Send to Slack
         uses: slackapi/slack-github-action@v1.27.0
@@ -120,11 +103,10 @@ jobs:
                   "type": "section",
                   "text": {
                     "type": "mrkdwn",
-                    "text": ${{ toJSON(steps.report.outputs.report) }}
+                    "text": ${{ steps.report.outputs.report }}
                   }
                 }
               ]
             }
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
-
