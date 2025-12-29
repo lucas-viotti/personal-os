@@ -346,7 +346,7 @@ jobs:
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *💡 AI Focus Recommendation*
-          Based on the PRIORITIZATION RULES provided, here's what to focus on:
+          Based on prioritization rules, your current priorities and recent activity, here's what to focus on:
 
           • 🔴 *[P0 Task name]*
           _[2-3 sentences explaining WHY this is prioritized based on the rules. Reference the specific criteria (deadline, blocking others, goal alignment, etc.)]_
@@ -363,7 +363,7 @@ jobs:
           - Status headers: *🔴 Not started* and *🟡 In Progress* as bold headers
           - Task bullets: NO emoji, just • [task name]
           - Skip empty status groups entirely
-          - Focus Recommendation: Apply PRIORITIZATION RULES to select and explain task priority (2-3 sentences each)
+          - Focus Recommendation: Apply prioritization rules to select and explain task priority (2-3 sentences each)
           - Explicitly mention which prioritization criteria applies to each recommended task
           PROMPT_END
           
