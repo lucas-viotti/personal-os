@@ -1,0 +1,130 @@
+name: Daily Task Check
+
+# Automated daily task summary sent to Slack
+# Configure your timezone by adjusting the cron schedule
+
+on:
+  schedule:
+    # Default: 6:00 PM UTC (adjust for your timezone)
+    # Examples:
+    #   6:00 PM EST = 23:00 UTC → '0 23 * * 1-5'
+    #   6:00 PM PST = 02:00 UTC → '0 2 * * 2-6'
+    #   6:00 PM BRT = 21:00 UTC → '0 21 * * 1-5'
+    - cron: '0 21 * * 1-5'  # Monday-Friday
+  workflow_dispatch:  # Allow manual trigger for testing
+
+env:
+  TZ: UTC  # Set your timezone for date formatting
+
+jobs:
+  daily-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Generate Daily Report
+        id: report
+        run: |
+          echo "## 🌅 Daily Task Check — $(date +'%B %d, %Y')" > report.md
+          echo "" >> report.md
+          
+          # Count tasks by status
+          TOTAL=$(find Tasks -name "*.md" ! -name "README.md" 2>/dev/null | wc -l | tr -d ' ')
+          NOT_STARTED=$(grep -l "status: n" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
+          STARTED=$(grep -l "status: s" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
+          BLOCKED=$(grep -l "status: b" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
+          IN_PROGRESS=$(grep -l "status: ip" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
+          
+          echo "### 📊 Task Summary" >> report.md
+          echo "| Status | Count |" >> report.md
+          echo "|--------|-------|" >> report.md
+          echo "| 🔴 Not Started | $NOT_STARTED |" >> report.md
+          echo "| 🟡 In Progress | $((STARTED + IN_PROGRESS)) |" >> report.md
+          echo "| 🟠 Blocked | $BLOCKED |" >> report.md
+          echo "| **Total Active** | $TOTAL |" >> report.md
+          echo "" >> report.md
+          
+          # List P0 tasks (Critical)
+          echo "### 🚨 P0 Tasks (Do Today)" >> report.md
+          P0_TASKS=$(grep -l "priority: P0" Tasks/*.md 2>/dev/null || echo "")
+          if [ -z "$P0_TASKS" ]; then
+            echo "_No P0 tasks_" >> report.md
+          else
+            for file in $P0_TASKS; do
+              TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
+              STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+              case $STATUS in
+                n) STATUS_EMOJI="🔴" ;;
+                s|ip) STATUS_EMOJI="🟡" ;;
+                b) STATUS_EMOJI="🟠" ;;
+                d) STATUS_EMOJI="✅" ;;
+                *) STATUS_EMOJI="⚪" ;;
+              esac
+              echo "- $STATUS_EMOJI $TITLE" >> report.md
+            done
+          fi
+          echo "" >> report.md
+          
+          # List P1 tasks (This Week)
+          echo "### ⚡ P1 Tasks (This Week)" >> report.md
+          P1_TASKS=$(grep -l "priority: P1" Tasks/*.md 2>/dev/null || echo "")
+          if [ -z "$P1_TASKS" ]; then
+            echo "_No P1 tasks_" >> report.md
+          else
+            for file in $P1_TASKS; do
+              TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
+              STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+              case $STATUS in
+                n) STATUS_EMOJI="🔴" ;;
+                s|ip) STATUS_EMOJI="🟡" ;;
+                b) STATUS_EMOJI="🟠" ;;
+                d) STATUS_EMOJI="✅" ;;
+                *) STATUS_EMOJI="⚪" ;;
+              esac
+              echo "- $STATUS_EMOJI $TITLE" >> report.md
+            done
+          fi
+          echo "" >> report.md
+          
+          # Highlight blocked tasks
+          if [ "$BLOCKED" -gt 0 ]; then
+            echo "### ⚠️ Blocked Tasks (Need Attention)" >> report.md
+            BLOCKED_TASKS=$(grep -l "status: b" Tasks/*.md 2>/dev/null || echo "")
+            for file in $BLOCKED_TASKS; do
+              TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
+              echo "- 🟠 $TITLE" >> report.md
+            done
+            echo "" >> report.md
+          fi
+          
+          echo "---" >> report.md
+          echo "_Reply to update tasks or say \"nothing changed\"_" >> report.md
+          
+          # Output for Slack
+          REPORT_CONTENT=$(cat report.md)
+          echo "report<<EOF" >> $GITHUB_OUTPUT
+          echo "$REPORT_CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Send to Slack
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
+          payload: |
+            {
+              "text": "Daily Task Check",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ${{ toJSON(steps.report.outputs.report) }}
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+

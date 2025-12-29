@@ -1,0 +1,154 @@
+name: Weekly Review
+
+# Comprehensive weekly task review with reflection prompts
+# Sent to Slack every Friday
+
+on:
+  schedule:
+    # Default: Friday 6:00 PM UTC (adjust for your timezone)
+    - cron: '0 18 * * 5'
+  workflow_dispatch:  # Allow manual trigger for testing
+
+env:
+  TZ: UTC  # Set your timezone for date formatting
+
+jobs:
+  weekly-report:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for commit analysis
+
+      - name: Generate Weekly Report
+        id: report
+        run: |
+          echo "## 📋 Weekly Review — Week of $(date +'%B %d, %Y')" > report.md
+          echo "" >> report.md
+          
+          # Count tasks by status
+          TOTAL=$(find Tasks -name "*.md" ! -name "README.md" 2>/dev/null | wc -l | tr -d ' ')
+          NOT_STARTED=$(grep -l "status: n" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
+          STARTED=$(grep -l "status: s" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
+          IN_PROGRESS=$(grep -l "status: ip" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
+          BLOCKED=$(grep -l "status: b" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
+          DONE=$(grep -l "status: d" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
+          
+          echo "### 📊 Task Overview" >> report.md
+          echo "| Status | Count |" >> report.md
+          echo "|--------|-------|" >> report.md
+          echo "| 🔴 Not Started | $NOT_STARTED |" >> report.md
+          echo "| 🟡 In Progress | $((STARTED + IN_PROGRESS)) |" >> report.md
+          echo "| 🟠 Blocked | $BLOCKED |" >> report.md
+          echo "| ✅ Done (ready to archive) | $DONE |" >> report.md
+          echo "| **Total** | $TOTAL |" >> report.md
+          echo "" >> report.md
+          
+          # Activity this week (git-based)
+          echo "### 📝 Activity This Week" >> report.md
+          WEEK_AGO=$(date -d '7 days ago' +%Y-%m-%d 2>/dev/null || date -v-7d +%Y-%m-%d 2>/dev/null || echo "")
+          if [ -n "$WEEK_AGO" ]; then
+            MODIFIED_COUNT=$(git log --since="$WEEK_AGO" --name-only --pretty=format: -- 'Tasks/*.md' 2>/dev/null | sort -u | grep -v '^$' | wc -l | tr -d ' ')
+            COMMITS_COUNT=$(git log --since="$WEEK_AGO" --oneline -- 'Tasks/*.md' 2>/dev/null | wc -l | tr -d ' ')
+            echo "- **$MODIFIED_COUNT** task files modified" >> report.md
+            echo "- **$COMMITS_COUNT** commits to tasks" >> report.md
+          else
+            echo "_Git history analysis unavailable_" >> report.md
+          fi
+          echo "" >> report.md
+          
+          # P0 Tasks detail
+          echo "### 🚨 P0 Tasks (Critical)" >> report.md
+          P0_TASKS=$(grep -l "priority: P0" Tasks/*.md 2>/dev/null || echo "")
+          if [ -z "$P0_TASKS" ]; then
+            echo "_No P0 tasks — nice!_ 🎉" >> report.md
+          else
+            for file in $P0_TASKS; do
+              TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
+              STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+              case $STATUS in
+                n) STATUS_EMOJI="🔴 Not started" ;;
+                s|ip) STATUS_EMOJI="🟡 In progress" ;;
+                b) STATUS_EMOJI="🟠 Blocked" ;;
+                d) STATUS_EMOJI="✅ Done" ;;
+                *) STATUS_EMOJI="⚪ Unknown" ;;
+              esac
+              echo "- **$TITLE** — $STATUS_EMOJI" >> report.md
+            done
+          fi
+          echo "" >> report.md
+          
+          # Blocked tasks requiring attention
+          if [ "$BLOCKED" -gt 0 ]; then
+            echo "### ⚠️ Blocked Tasks (Need Attention)" >> report.md
+            BLOCKED_TASKS=$(grep -l "status: b" Tasks/*.md 2>/dev/null || echo "")
+            for file in $BLOCKED_TASKS; do
+              TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
+              echo "- 🟠 $TITLE" >> report.md
+            done
+            echo "" >> report.md
+          fi
+          
+          # Done tasks ready to archive
+          if [ "$DONE" -gt 0 ]; then
+            echo "### 🗂️ Ready to Archive" >> report.md
+            DONE_TASKS=$(grep -l "status: d" Tasks/*.md 2>/dev/null || echo "")
+            for file in $DONE_TASKS; do
+              TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
+              echo "- ✅ $TITLE" >> report.md
+            done
+            echo "" >> report.md
+          fi
+          
+          # Backlog status
+          echo "### 📥 Backlog Status" >> report.md
+          if [ -f "BACKLOG.md" ]; then
+            BACKLOG_ITEMS=$(grep "^-" BACKLOG.md 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$BACKLOG_ITEMS" -gt 0 ]; then
+              echo "⚠️ **$BACKLOG_ITEMS items** waiting to be processed" >> report.md
+            else
+              echo "✅ Backlog is clear!" >> report.md
+            fi
+          else
+            echo "✅ No backlog file" >> report.md
+          fi
+          echo "" >> report.md
+          
+          # Reflection prompts
+          echo "### 💭 Reflection Prompts" >> report.md
+          echo "- What moved you closer to your goals this week?" >> report.md
+          echo "- What's the ONE thing to focus on next week?" >> report.md
+          echo "- Any tasks to archive or cancel?" >> report.md
+          echo "" >> report.md
+          
+          echo "---" >> report.md
+          echo "_Say \`weekly review\` for full interactive review_" >> report.md
+          
+          # Output for Slack
+          REPORT_CONTENT=$(cat report.md)
+          echo "report<<EOF" >> $GITHUB_OUTPUT
+          echo "$REPORT_CONTENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Send to Slack
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
+          payload: |
+            {
+              "text": "Weekly Review",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ${{ toJSON(steps.report.outputs.report) }}
+                  }
+                }
+              ]
+            }
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+

@@ -1,134 +1,189 @@
-# PersonalOS
+# PersonalOS (Enhanced Fork)
 
-[![License](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-orange)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
-[![X](https://img.shields.io/badge/X-@__amankhan-blue?logo=x&logoColor=white)](https://x.com/_amankhan)
-[![Star this repo](https://img.shields.io/github/stars/amanaiproduct/personal-os?style=social)](https://github.com/amanaiproduct/personal-os)
+> AI-powered task management with **automated Slack notifications** and **task archiving**
 
-Your AI-powered task management system that keeps you focused on what matters.
+[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
-Brain dump into `BACKLOG.md`, tell your AI assistant to process it, and get organized tasks automatically prioritized based on your goals.
-
-| Section | Status |
-|---------|--------|
-| Task Management | ✅ |
-| Goal-driven Prioritization | ✅ |
-| Knowledge Base | ✅ |
-| Backlog Processing | ✅ |
-| Session Evals | ✅ |
-| MCP Server (optional) | ✅ |
+This is an enhanced fork of [amanaiproduct/personal-os](https://github.com/amanaiproduct/personal-os) with additional features for **automated daily/weekly reviews** and **task lifecycle management**.
 
 ---
 
-*Quick links:* [Quick Start](#quick-start) · [How It Works](#how-it-works) · [Directory Structure](#directory-structure) · [Daily Workflow](#daily-workflow)
+## ✨ What's New in This Fork
+
+| Feature | Description |
+|---------|-------------|
+| 📬 **Daily Slack Reports** | Automated task summaries sent to Slack every workday |
+| 📋 **Weekly Reviews** | Comprehensive weekly digest with reflection prompts |
+| 🗂️ **Task Archiving** | Move completed tasks to organized monthly archives |
+| 🔄 **GitHub Actions** | Fully automated, no manual triggers needed |
 
 ---
 
-<img width="1071" height="677" alt="Screenshot 2025-12-26 at 11 51 27 PM" src="https://github.com/user-attachments/assets/bbde8dc5-7e17-4ced-bc2b-ede505ee4a72" />
+## 🚀 Quick Start
 
+### 1. Clone & Setup
 
-## Quick Start
-
-### 1. Clone the Repository
 ```bash
-git clone https://github.com/amanaiproduct/personal-os.git
+git clone https://github.com/lucas-viotti/personal-os.git
 cd personal-os
-```
-
-### 2. Run Setup (2 minutes)
-```bash
 ./setup.sh
 ```
 
-The setup will:
-- Create your workspace directories
-- Guide you through questions about your goals and priorities
-- Generate your personalized GOALS.md
-- Copy template files
+### 2. Configure Slack Integration (Optional)
 
-**Note:** Python 3.10+ is only needed if you want to run the MCP server. The basic setup works with just bash.
+To receive automated reports in Slack:
+
+1. **Create a Slack App** at [api.slack.com/apps](https://api.slack.com/apps)
+2. Add Bot Token Scopes: `chat:write`, `chat:write.public`
+3. Install to your workspace and copy the Bot Token
+4. Add GitHub Secrets:
+   - `SLACK_BOT_TOKEN`: Your bot token (starts with `xoxb-`)
+   - `SLACK_CHANNEL_ID`: Target channel ID (e.g., `C01ABCD1234`)
 
 ### 3. Start Using It
+
 ```
-# In your AI assistant (Claude Code, etc.)
+# In your AI assistant (Claude, Cursor, etc.)
 "Read AGENTS.md and help me get organized"
 ```
 
-## How It Works
+---
 
-1. **Brain dump** - Drop notes into `BACKLOG.md` (no structure needed)
-2. **Process** - Say "process my backlog" to your AI
-3. **Get organized** - AI creates prioritized tasks based on your GOALS.md
-4. **Stay focused** - Ask "what should I work on?" for smart suggestions
+## 📬 Automated Slack Reports
 
-### Common Commands
+### Daily Check (Monday-Friday)
 
-- `"Process my backlog"` - Turn notes into tasks
-- `"What should I work on?"` - Get AI suggestions
-- `"Show me my P0 tasks"` - See urgent items
-- `"Mark [task] as done"` - Complete work
+Receive a daily summary at end of workday:
 
-### Priorities
+```
+🌅 Daily Task Check — January 15, 2025
 
-| Priority | Meaning | Limit |
-|----------|---------|-------|
-| **P0** | Do today | max 3 |
-| **P1** | This week | max 7 |
-| **P2** | Scheduled | - |
-| **P3** | Someday/maybe | - |
+📊 Task Summary
+| Status | Count |
+|--------|-------|
+| 🔴 Not Started | 3 |
+| 🟡 In Progress | 5 |
+| 🟠 Blocked | 1 |
 
-## Directory Structure
+🚨 P0 Tasks (Do Today)
+- 🟡 Complete quarterly report
+- 🔴 Review PR feedback
+
+⚡ P1 Tasks (This Week)
+- 🟡 Update documentation
+- 🔴 Schedule team sync
+```
+
+### Weekly Review (Fridays)
+
+Comprehensive weekly digest with:
+- Task status overview
+- Activity metrics (commits, files modified)
+- Blocked tasks requiring attention
+- Tasks ready to archive
+- Reflection prompts
+
+---
+
+## 🗂️ Task Archiving
+
+Keep your `Tasks/` folder clean by archiving completed work:
+
+```
+"Archive my completed tasks"
+```
+
+Tasks are organized by completion month:
+
+```
+Archive/
+├── 2025-01/
+│   └── task-001-feature-launch.md
+├── 2025-02/
+│   └── task-015-bug-fix.md
+```
+
+---
+
+## 📁 Directory Structure
 
 ```
 personal-os/
-├── core/                    # Reusable system components (public)
-│   ├── evals/              # Session evaluations
-│   ├── mcp/                # MCP server implementation
-│   │   └── server.py       # Core server with deduplication
-│   ├── templates/          # Template files for users
-│   │   ├── AGENTS.md       # Comprehensive AI instruction template
-│   │   ├── config.yaml     # Configuration template
-│   │   └── gitignore       # Gitignore template
-│   └── README.md           # Core system documentation
-│
-├── Tasks/                  # Your personal tasks (gitignored)
-├── Knowledge/              # Reference docs & notes (gitignored)
-├── BACKLOG.md             # Your backlog inbox (gitignored)
-├── GOALS.md               # Your personalized goals (generated by setup)
-├── AGENTS.md              # Your AI agent instructions
-└── setup.sh               # Interactive setup script
+├── .github/
+│   └── workflows/
+│       ├── daily-check.yml      # 🆕 Daily Slack reports
+│       └── weekly-review.yml    # 🆕 Weekly Slack digest
+├── Tasks/                       # Active tasks
+├── Archive/                     # 🆕 Completed tasks by month
+├── Knowledge/                   # Reference docs & notes
+├── examples/
+│   └── workflows/
+│       └── archive-tasks.md     # 🆕 Archive workflow docs
+├── BACKLOG.md                   # Quick capture inbox
+├── GOALS.md                     # Your goals & priorities
+├── AGENTS.md                    # AI assistant instructions
+└── README.md
 ```
 
-## Daily Workflow
+---
 
-**Morning:** `"Show me today's priorities"` → Pick 1-3 tasks
+## 🔧 Customization
 
-**During work:** Brain dump into BACKLOG.md, save docs to Knowledge/
+### Adjust Notification Schedule
 
-**End of day:** `"Mark [task] as done"`
+Edit `.github/workflows/daily-check.yml`:
 
-**Weekly:** `"Process my backlog"` + `"Clean up old tasks"`
+```yaml
+schedule:
+  # 6:00 PM EST = 23:00 UTC
+  - cron: '0 23 * * 1-5'
+```
 
-## Features
+### Common Timezones
 
-- Goal-driven prioritization based on your vision
-- Smart deduplication detects duplicate tasks
-- Natural language - just talk to your AI
-- Session evals to review and learn from AI interactions
-- 2-minute setup, no Python required
-- MCP integration for Claude and other AI assistants
+| Timezone | Cron (6 PM) |
+|----------|-------------|
+| EST | `0 23 * * 1-5` |
+| PST | `0 2 * * 2-6` |
+| BRT | `0 21 * * 1-5` |
+| UTC | `0 18 * * 1-5` |
 
-## For Contributors
+---
 
-The `core/` directory contains the reusable system. Contributions should:
-- Not include personal information
-- Be generic and configurable
+## 📖 Original Features
+
+All original PersonalOS features are preserved:
+
+- ✅ Goal-driven prioritization
+- ✅ Smart task deduplication
+- ✅ Natural language processing
+- ✅ Session evaluations
+- ✅ MCP server integration
+- ✅ Knowledge base management
+
+See the [original repo](https://github.com/amanaiproduct/personal-os) for full documentation.
+
+---
+
+## 🙏 Attribution
+
+This project is based on [PersonalOS](https://github.com/amanaiproduct/personal-os) by Aman Khan.
+
+Licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
+
+---
+
+## 🤝 Contributing
+
+Contributions welcome! Please:
+- Keep personal information out of commits
+- Make features generic and configurable
 - Include documentation
-- Follow the existing patterns
+- Follow existing patterns
 
-## License
+---
 
-This work is licensed under CC BY-NC-SA 4.0.
+## 📫 Contact
 
-Copyright © 2025 Aman Khan. You may view, use, modify, and share this repo with attribution for non-commercial purposes. Commercial sale is not permitted, but you may use it internally for work and business.
-
-Full license: https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode
+- **Fork Author**: [Lucas Viotti](https://github.com/lucas-viotti)
+- **Original Author**: [Aman Khan](https://github.com/amanaiproduct)
