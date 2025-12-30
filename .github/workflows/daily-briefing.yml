@@ -221,6 +221,11 @@ jobs:
           # Include next_action and next_action_due for prioritization
           TASK_DETAILS=""
           ACTIONS_DUE_TODAY=""
+          ACTIONS_DUE_WEEK=""
+          
+          # Calculate week-end date (7 days from today)
+          WEEK_END=$(date -d "+7 days" +%Y-%m-%d 2>/dev/null || date -v+7d +%Y-%m-%d)
+          echo "Today: $TODAY, Week end: $WEEK_END"
           
           # Process P0 tasks
           for file in $(grep -l "priority: P0" Tasks/*.md 2>/dev/null | head -5 || echo ""); do
@@ -250,8 +255,12 @@ jobs:
             TASK_DETAILS="${TASK_DETAILS}CONTEXT: ${CONTEXT}\nLATEST: ${PROGRESS}\n"
             
             # Track actions due today or overdue
-            if [ -n "$NEXT_ACTION_DUE" ] && [ "$NEXT_ACTION_DUE" \<= "$TODAY" ] && [ "$STATUS" != "b" ]; then
-              ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• P0: ${NEXT_ACTION} (${TITLE})\n"
+            if [ -n "$NEXT_ACTION_DUE" ] && [ "$STATUS" != "b" ]; then
+              if [ "$NEXT_ACTION_DUE" \<= "$TODAY" ]; then
+                ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• 🔴 ${NEXT_ACTION} — _${TITLE}_ (P0)\n"
+              elif [ "$NEXT_ACTION_DUE" \<= "$WEEK_END" ]; then
+                ACTIONS_DUE_WEEK="${ACTIONS_DUE_WEEK}• 🔴 ${NEXT_ACTION} — _${TITLE}_ (due ${NEXT_ACTION_DUE})\n"
+              fi
             fi
           done
           
@@ -281,8 +290,12 @@ jobs:
             TASK_DETAILS="${TASK_DETAILS}CONTEXT: ${CONTEXT}\nLATEST: ${PROGRESS}\n"
             
             # Track actions due today or overdue
-            if [ -n "$NEXT_ACTION_DUE" ] && [ "$NEXT_ACTION_DUE" \<= "$TODAY" ] && [ "$STATUS" != "b" ]; then
-              ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• P1: ${NEXT_ACTION} (${TITLE})\n"
+            if [ -n "$NEXT_ACTION_DUE" ] && [ "$STATUS" != "b" ]; then
+              if [ "$NEXT_ACTION_DUE" \<= "$TODAY" ]; then
+                ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• 🟡 ${NEXT_ACTION} — _${TITLE}_ (P1)\n"
+              elif [ "$NEXT_ACTION_DUE" \<= "$WEEK_END" ]; then
+                ACTIONS_DUE_WEEK="${ACTIONS_DUE_WEEK}• 🟡 ${NEXT_ACTION} — _${TITLE}_ (due ${NEXT_ACTION_DUE})\n"
+              fi
             fi
           done
           
@@ -322,6 +335,11 @@ jobs:
           echo "actions_due_today<<EOF" >> $GITHUB_OUTPUT
           echo -e "$ACTIONS_DUE_TODAY" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+          
+          # Output actions due this week (not today)
+          echo "actions_due_week<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$ACTIONS_DUE_WEEK" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       # ============================================
       # STEP 2: AI ANALYSIS
@@ -343,6 +361,35 @@ jobs:
           echo "$RULES" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
       
+      - name: Load Agent Instructions
+        id: agents
+        run: |
+          # Load Workflow Agent instructions
+          if [ -f "core/agents/workflow.md" ]; then
+            WORKFLOW_AGENT=$(cat core/agents/workflow.md)
+            echo "Loaded workflow agent instructions"
+          else
+            WORKFLOW_AGENT="You are a productivity assistant."
+            echo "Using default workflow agent"
+          fi
+          
+          # Load Analyzer Agent instructions
+          if [ -f "core/agents/analyzer.md" ]; then
+            ANALYZER_AGENT=$(cat core/agents/analyzer.md)
+            echo "Loaded analyzer agent instructions"
+          else
+            ANALYZER_AGENT=""
+            echo "No analyzer agent found"
+          fi
+          
+          echo "workflow_agent<<EOF" >> $GITHUB_OUTPUT
+          echo "$WORKFLOW_AGENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "analyzer_agent<<EOF" >> $GITHUB_OUTPUT
+          echo "$ANALYZER_AGENT" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
       - name: Generate AI Summary and Recommendations
         id: ai_analysis
         continue-on-error: true
@@ -360,11 +407,13 @@ jobs:
           BLOCKED_TASKS: ${{ steps.tasks.outputs.blocked_tasks }}
           TASK_DETAILS: ${{ steps.tasks.outputs.task_details }}
           ACTIONS_DUE_TODAY: ${{ steps.tasks.outputs.actions_due_today }}
+          ACTIONS_DUE_WEEK: ${{ steps.tasks.outputs.actions_due_week }}
           JIRA_RAW: ${{ steps.jira.outputs.jira_raw }}
           JIRA_COUNT: ${{ steps.jira.outputs.jira_count }}
           CONFLUENCE_DATA: ${{ steps.confluence.outputs.confluence_data }}
           CONFLUENCE_COUNT: ${{ steps.confluence.outputs.confluence_count }}
           PRIORITIZATION_RULES: ${{ steps.priorities.outputs.rules }}
+          WORKFLOW_AGENT: ${{ steps.agents.outputs.workflow_agent }}
         run: |
           MODEL="${LLM_MODEL_SECRET:-${{ env.LLM_MODEL }}}"
           
@@ -373,10 +422,12 @@ jobs:
             exit 0
           fi
           
+          echo "🤖 Using Agent-Based Generation (Phase 4)"
+          
           # Build prompt for main message (Tasks + Focus Recommendations)
           # Recent Activity with links will be posted as a thread reply
           read -r -d '' PROMPT << 'PROMPT_END' || true
-          You are a productivity assistant. Generate a Slack daily briefing.
+          You are the Workflow Agent for Personal OS. Generate a Slack daily briefing.
 
           CRITICAL: Output must be UNDER 2500 characters total.
           Use Slack mrkdwn: *bold*, _italic_, • for bullets
@@ -440,16 +491,11 @@ jobs:
 
           RAW DATA TO SUMMARIZE:
 
-          ACTIONS DUE TODAY OR OVERDUE (prioritize these first):
+          🎯 ACTIONS DUE TODAY OR OVERDUE (prioritize these first):
           $ACTIONS_DUE_TODAY
 
-          P0 TASKS ($P0_COUNT total, excluding blocked):
-          Not started: $P0_NOT_STARTED
-          In progress: $P0_IN_PROGRESS
-
-          P1 TASKS ($P1_COUNT total, excluding blocked):
-          Not started: $P1_NOT_STARTED
-          In progress: $P1_IN_PROGRESS
+          📅 ACTIONS DUE THIS WEEK (next 7 days, not today):
+          $ACTIONS_DUE_WEEK
 
           BLOCKED TASKS ($BLOCKED_COUNT total):
           $BLOCKED_TASKS
