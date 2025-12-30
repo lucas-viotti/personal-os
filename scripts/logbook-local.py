@@ -960,10 +960,11 @@ Summarize what's relevant to my current tasks."
 """)
         print("-" * 60)
         print("""
-3. Review the findings and manually add to your Logbook thread
+3. Ask Cursor to save the summary:
+   "Save that summary to scripts/.slack-context.md"
 
-Tip: You can also configure SLACK_USER_TOKEN in .env for 
-automatic enrichment (requires Slack admin approval).
+4. Then run: python3 scripts/logbook-local.py post-context
+   → This will post the summary to your Logbook thread!
 """)
         print("=" * 60)
 
@@ -997,15 +998,25 @@ def fetch_slack_activity_with_token(config: Dict[str, str], token: str) -> Optio
     return "\n".join(output)
 
 
-def post_to_thread(config: Dict[str, str], thread_ts: str, message: str):
+def post_to_thread(config: Dict[str, str], thread_ts: str, message: str, channel: str = None):
     """Post a message to an existing thread."""
     token = config.get("SLACK_BOT_TOKEN")
-    channel = config.get("SLACK_CHANNEL_ID")
+    if not channel:
+        channel = config.get("SLACK_CHANNEL_ID")
     
     if not token or not channel:
         print("\n📨 Would post to thread:")
         print(message)
-        return
+        return False
+    
+    # If channel is a user ID, open DM first
+    if channel.startswith("U") or channel.startswith("W"):
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        open_url = "https://slack.com/api/conversations.open"
+        open_payload = json.dumps({"users": channel}).encode()
+        open_response = api_request(open_url, headers, open_payload, method="POST")
+        if open_response and open_response.get("ok"):
+            channel = open_response.get("channel", {}).get("id")
     
     url = "https://slack.com/api/chat.postMessage"
     headers = {
@@ -1027,8 +1038,56 @@ def post_to_thread(config: Dict[str, str], thread_ts: str, message: str):
     
     if response and response.get("ok"):
         print("✅ Posted Slack context to thread")
+        return True
     else:
         print(f"❌ Could not post to thread: {response.get('error', 'unknown')}")
+        return False
+
+
+def post_context_from_file(config: Dict[str, str]):
+    """
+    Read context from .slack-context.md and post to the most recent Logbook thread.
+    This enables the workflow: 
+    1. Run 'enrich' -> Cursor searches Slack MCP
+    2. Cursor writes summary to .slack-context.md
+    3. Run 'post-context' -> Posts to thread
+    """
+    context_file = Path(__file__).parent / ".slack-context.md"
+    
+    if not context_file.exists():
+        print("❌ No context file found at scripts/.slack-context.md")
+        print("\nTo create one, ask Cursor to search your Slack and save the summary:")
+        print('   "Search my Slack for task updates and save to scripts/.slack-context.md"')
+        return
+    
+    # Read the context
+    with open(context_file) as f:
+        context = f.read().strip()
+    
+    if not context:
+        print("❌ Context file is empty")
+        return
+    
+    print(f"📄 Read context ({len(context)} chars)")
+    
+    # Find recent Logbook message
+    print("\n🔍 Finding recent Logbook message...")
+    recent_msg = find_recent_logbook_message(config)
+    
+    if not recent_msg:
+        print("❌ No recent Logbook message found")
+        print("   Run a briefing/closing first, or check your Slack DM")
+        return
+    
+    print(f"  Found thread: {recent_msg['text'][:50]}...")
+    
+    # Post to thread
+    success = post_to_thread(config, recent_msg["ts"], f"*💬 Slack Context*\n\n{context}\n\n_Generated via Cursor Slack MCP_", recent_msg["channel"])
+    
+    if success:
+        # Delete the context file after successful post
+        context_file.unlink()
+        print("🗑️ Cleaned up context file")
 
 
 def generate_weekly_review(config: Dict[str, str]) -> tuple:
@@ -1109,16 +1168,17 @@ def main():
     if len(sys.argv) < 2:
         print(__doc__)
         print("\nAvailable commands:")
-        print("  briefing  - Morning focus report (8:30 AM)")
-        print("  closing   - End-of-day wrap-up (5:50 PM)")
-        print("  weekly    - Weekly review (Friday)")
-        print("  enrich    - Add Slack context to recent Logbook thread")
+        print("  briefing     - Morning focus report (8:30 AM)")
+        print("  closing      - End-of-day wrap-up (5:50 PM)")
+        print("  weekly       - Weekly review (Friday)")
+        print("  enrich       - Show prompt for Cursor to search Slack")
+        print("  post-context - Post .slack-context.md to Logbook thread")
         sys.exit(1)
     
     command = sys.argv[1].lower()
     config = load_config()
     
-    print(f"\n🚀 Logbook Local - {command.title()}")
+    print(f"\n🚀 Logbook Local - {command.replace('-', ' ').title()}")
     print("=" * 50)
     
     if command == "briefing":
@@ -1132,9 +1192,11 @@ def main():
         post_to_slack(config, main_msg, "Weekly Review", thread_msg)
     elif command == "enrich":
         enrich_with_slack_context(config)
+    elif command == "post-context":
+        post_context_from_file(config)
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: briefing, closing, weekly, enrich")
+        print("Available commands: briefing, closing, weekly, enrich, post-context")
         sys.exit(1)
     
     print("\n✅ Done!")
