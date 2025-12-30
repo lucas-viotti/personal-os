@@ -44,20 +44,35 @@ Archive/
 │   └── another-task.md
 ```
 
-## Task Template
+## Task Template (Schema v2.0)
 
 ```yaml
 ---
+# === Identity ===
 title: [Actionable task name]
-category: [see categories]
+category: [technical|outreach|research|writing|admin|personal|other]
+
+# === Priority & Status ===
 priority: [P0|P1|P2|P3]
-status: n  # n=not_started (s=started, b=blocked, d=done)
+status: [n|s|b|d]  # not_started | started | blocked | done
+
+# === Blocking (only when status: b) ===
+blocked_type: [external|dependency|decision]  # required when blocked
+blocked_by: [Who/what is blocking]            # required when blocked
+blocked_expected: [YYYY-MM-DD]                # optional - when to check back
+
+# === Dates ===
 created_date: [YYYY-MM-DD]
-due_date: [YYYY-MM-DD]  # optional
-completed_date: [YYYY-MM-DD]  # added when archived
-estimated_time: [minutes]  # optional
-resource_refs:
-  - Knowledge/example.md
+due_date: [YYYY-MM-DD]           # Final deadline (required)
+completed_date: [YYYY-MM-DD]     # Added when archived
+
+# === Focus ===
+next_action: [Single action with earliest due date]
+next_action_due: [YYYY-MM-DD]    # When this action is due
+
+# === Estimates & References ===
+estimated_time: [minutes]        # optional
+resource_refs: []                # optional
 ---
 
 # [Task name]
@@ -73,29 +88,65 @@ Tie to goals and reference material.
 - YYYY-MM-DD: Notes, blockers, decisions.
 ```
 
+## Focus Management
+
+Every active task (`status: s`) should have:
+- `next_action`: The action with the EARLIEST due date among all pending actions
+- `next_action_due`: When that specific action is due
+
+**Guardrails:**
+1. `next_action` must be a SINGLE action (no "and")
+2. Must match a `- [ ]` item in the Next Actions list
+3. When completed, update immediately to the next action (by earliest due date)
+4. If multiple actions have the same due date, pick any one
+5. When creating/updating tasks with multiple next actions, ask: "What is the earliest due date for any of these actions?"
+
+**AI Behavior:**
+- Surface tasks by `next_action_due`, not just priority
+- In Daily Briefing: "Focus today: [next_action] (due [date]) — [task title]"
+- In Daily Closing: Flag tasks where `next_action_due` passed without completion
+
+## Blocked Tasks
+
+When a task is blocked (`status: b`), specify:
+- `blocked_type`: external | dependency | decision
+  - **external**: Waiting on someone outside your control (e.g., Lead Bank response)
+  - **dependency**: Blocked by another task that must complete first
+  - **decision**: Waiting for a decision to be made before proceeding
+- `blocked_by`: Who or what is blocking progress
+- `blocked_expected`: When to follow up (optional but recommended)
+
+**AI Behavior:**
+- Blocked tasks are tracked but NOT surfaced as "focus today"
+- Show blocked tasks in a separate "Tracking" section
+- Remind you to check blocked items when `blocked_expected` date arrives
+- When unblocked, prompt to clear blocking fields and set `next_action`
+
 ## Goals Alignment
 - During backlog work, make sure each task references the relevant goal inside the **Context** section (cite headings or bullets from `GOALS.md`).
 - If no goal fits, ask whether to create a new goal entry or clarify why the work matters.
 - Remind the user when active tasks do not support any current goals.
 
 ## Daily Guidance
-- Answer prompts like "What should I work on today?" by inspecting priorities, statuses, and goal alignment.
+- Answer prompts like "What should I work on today?" by:
+  1. First, check `next_action_due` dates for what's due today/overdue
+  2. Then, consider priority (P0 > P1 > P2 > P3)
+  3. Reference `Knowledge/prioritization-rules.md` for tie-breaking
 - Suggest no more than three focus tasks unless the user insists.
-- Flag blocked tasks and propose next steps or follow-up questions.
-- Reference `Knowledge/prioritization-rules.md` for prioritization criteria.
+- Flag blocked tasks separately and propose follow-up actions.
 
 ## Automated Reports (GitHub Actions + Local)
 
-The system includes automated Slack reports. When asked about these:
+The system includes automated Slack reports:
 
 | Report | Schedule | Purpose |
 |--------|----------|---------|
-| ☀️ Daily Briefing | 8:30 AM | Morning focus with AI recommendations |
+| ☀️ Daily Briefing | 8:30 AM | Morning focus based on `next_action_due` |
 | 🌆 Daily Closing | 5:50 PM | End-of-day summary + suggested task updates |
 | 📋 Weekly Review | Friday 4:00 PM | Weekly reflection with accomplishments |
 
 **Slack Enrichment Flow:**
-After reports post, a dialog prompts the user to add Slack context. When asked to help:
+After reports post, a dialog prompts the user to add Slack context:
 1. Search recent Slack messages using Slack MCP
 2. Identify task-related updates, decisions, or action items
 3. Save summary to `scripts/.slack-context.md`
@@ -105,12 +156,14 @@ After reports post, a dialog prompts the user to add Slack context. When asked t
 ## Prioritization Rules
 
 When recommending focus or prioritizing tasks, follow the criteria in `Knowledge/prioritization-rules.md`:
-1. **Hard Deadlines** — Tasks due today or overdue
+1. **Hard Deadlines** — Tasks with `next_action_due` today or overdue
 2. **Blocking Others** — Work teammates are waiting on
 3. **Strategic Goal Alignment** — Tied to quarterly objectives
-4. **Momentum & Progress** — Continue tasks already in progress
+4. **Momentum & Progress** — Continue tasks already in progress (`status: s`)
 5. **Risk & Dependencies** — Address blockers early
 6. **Cognitive Load Matching** — Match complexity to energy levels
+
+**Note:** Blocked tasks (`status: b`) are automatically deprioritized until unblocked.
 
 ## Categories (adjust as needed)
 - **technical**: build, fix, configure
@@ -124,20 +177,15 @@ When recommending focus or prioritizing tasks, follow the criteria in `Knowledge
 
 ## Specialized Workflows
 
-For complex tasks, delegate to workflow files in `examples/workflows/`. Read the workflow file and follow its instructions.
+For complex tasks, delegate to workflow files in `examples/workflows/`:
 
 | Trigger | Workflow File | When to Use |
 |---------|---------------|-------------|
 | Archive completed tasks | `examples/workflows/archive-tasks.md` | "Archive done tasks", weekly cleanup |
-| Content generation, writing in user's voice | `examples/workflows/content-generation.md` | Any writing, marketing, or content task |
+| Content generation | `examples/workflows/content-generation.md` | Any writing, marketing, or content task |
 | Morning planning | `examples/workflows/morning-standup.md` | "What should I work on today?" |
 | Processing backlog | `examples/workflows/backlog-processing.md` | Reference for backlog flow |
 | Weekly reflection | `examples/workflows/weekly-review.md` | Weekly review prompts |
-
-**How to use workflows:**
-1. When a task matches a trigger, read the corresponding workflow file
-2. Follow the workflow's step-by-step instructions
-3. The workflow may reference files in `Knowledge/` for context (e.g., voice samples)
 
 ## Helpful Prompts to Encourage
 - "Clear my backlog" / "Process my backlog"
@@ -146,8 +194,9 @@ For complex tasks, delegate to workflow files in `examples/workflows/`. Read the
 - "What moved me closer to my goals this week?"
 - "What should I work on today?"
 - "List tasks still blocked"
+- "What's due this week?"
 - "Show me archived tasks from [month/year]"
-- "Search my Slack for task updates" (triggers Slack MCP enrichment)
+- "Search my Slack for task updates"
 - "Update my prioritization rules"
 
 ## Interaction Style
@@ -155,6 +204,7 @@ For complex tasks, delegate to workflow files in `examples/workflows/`. Read the
 - Batch follow-up questions.
 - Offer best-guess suggestions with confirmation instead of stalling.
 - Never delete or rewrite user notes outside the defined flow.
+- When tasks have multiple next actions, ask for the earliest due date.
 
 ## Tools Available
 - `process_backlog_with_dedup`
