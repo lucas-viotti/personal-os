@@ -877,6 +877,21 @@ TASK DETAILS:
     if confluence['count'] > 0:
         thread += f"*📝 Confluence ({confluence['count']} pages)*\n"
         thread += confluence['data']
+        thread += "\n\n"
+    
+    # Run Jira sync detection and add to thread
+    print("\n🔍 Detecting Jira sync opportunities...")
+    suggestions = scan_tasks_for_jira_updates(config)
+    
+    if suggestions:
+        save_pending_jira_updates(suggestions)
+        thread += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        thread += f"*🔄 Jira Sync Suggestions ({len(suggestions)} cards)*\n"
+        for s in suggestions[:5]:  # Limit to 5 in thread
+            thread += f"• <{s['jira_url']}|{s['jira_key']}>: {len(s['updates'])} update(s)\n"
+        if len(suggestions) > 5:
+            thread += f"_...and {len(suggestions) - 5} more_\n"
+        thread += "\n_Run `python3 scripts/logbook-local.py jira-sync` to review and post_"
     
     return main_report, thread
 
@@ -1313,6 +1328,898 @@ def enrich_with_agent(config: Dict[str, str], raw_messages_file: str = None, aut
         print("🗑️ Cleaned up raw messages file")
 
 
+# ============================================================================
+# JIRA SYNC - PHASE 1: DETECTION INFRASTRUCTURE
+# ============================================================================
+
+import re
+from typing import Tuple
+
+SCRIPT_DIR = Path(__file__).parent
+
+def extract_jira_keys(task_file: Path) -> List[str]:
+    """
+    Extract Jira keys from a task file's resource_refs and content.
+    
+    Looks for:
+    - URLs like https://domain.atlassian.net/browse/MRC-3266
+    - Inline references like [MRC-3266] or (MRC-3266)
+    - Markdown links like [MRC-3266](url)
+    """
+    jira_keys = set()
+    
+    try:
+        content = task_file.read_text()
+        
+        # Pattern for Jira URLs: https://domain.atlassian.net/browse/KEY-123
+        url_pattern = r'https?://[^/]+/browse/([A-Z]+-\d+)'
+        jira_keys.update(re.findall(url_pattern, content))
+        
+        # Pattern for inline references: [KEY-123], (KEY-123), KEY-123
+        inline_pattern = r'\b([A-Z]{2,10}-\d+)\b'
+        jira_keys.update(re.findall(inline_pattern, content))
+        
+    except Exception as e:
+        print(f"  Warning: Could not read {task_file}: {e}")
+    
+    return list(jira_keys)
+
+
+def fetch_jira_issue_state(config: Dict[str, str], jira_key: str) -> Optional[Dict]:
+    """
+    Fetch the current state of a single Jira issue.
+    
+    Returns:
+        {
+            'key': 'MRC-3266',
+            'summary': 'Issue title',
+            'status': 'In Progress',
+            'due_date': '2025-01-09',
+            'description': '...',
+            'last_comment_date': '2024-12-28T...',
+            'last_comment_text': '...',
+            'last_updated': '2024-12-30T...',
+            'url': 'https://domain.atlassian.net/browse/MRC-3266'
+        }
+    """
+    domain = config.get("ATLASSIAN_DOMAIN")
+    email = config.get("ATLASSIAN_EMAIL")
+    token = config.get("ATLASSIAN_API_TOKEN")
+    
+    if not all([domain, email, token]):
+        return None
+    
+    url = f"https://{domain}/rest/api/3/issue/{jira_key}?fields=summary,status,duedate,description,comment,updated"
+    auth = base64.b64encode(f"{email}:{token}".encode()).decode()
+    headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
+    
+    response = api_request(url, headers)
+    
+    if not response:
+        return None
+    
+    fields = response.get("fields", {})
+    
+    # Extract last comment
+    comments = fields.get("comment", {}).get("comments", [])
+    last_comment_date = None
+    last_comment_text = None
+    if comments:
+        last_comment = comments[-1]
+        last_comment_date = last_comment.get("created")
+        try:
+            last_comment_text = last_comment.get("body", {}).get("content", [{}])[0].get("content", [{}])[0].get("text", "")
+        except:
+            last_comment_text = "[complex comment]"
+    
+    return {
+        "key": jira_key,
+        "summary": fields.get("summary", ""),
+        "status": fields.get("status", {}).get("name", ""),
+        "due_date": fields.get("duedate"),
+        "description": fields.get("description", ""),
+        "last_comment_date": last_comment_date,
+        "last_comment_text": last_comment_text,
+        "last_updated": fields.get("updated"),
+        "url": f"https://{domain}/browse/{jira_key}"
+    }
+
+
+def parse_progress_log(task_file: Path) -> List[Dict]:
+    """
+    Parse the Progress Log section from a task file.
+    
+    Returns list of: [{'date': '2024-12-30', 'content': 'Notes...'}, ...]
+    """
+    entries = []
+    
+    try:
+        content = task_file.read_text()
+        
+        # Find Progress Log section
+        progress_match = re.search(r'## Progress Log\s*\n(.*?)(?=\n## |\Z)', content, re.DOTALL)
+        if not progress_match:
+            return entries
+        
+        progress_section = progress_match.group(1)
+        
+        # Parse entries: - YYYY-MM-DD: Content
+        entry_pattern = r'-\s*(\d{4}-\d{2}-\d{2}):\s*(.+?)(?=\n-\s*\d{4}|\Z)'
+        for match in re.finditer(entry_pattern, progress_section, re.DOTALL):
+            date_str = match.group(1)
+            content = match.group(2).strip()
+            entries.append({
+                "date": date_str,
+                "content": content
+            })
+    
+    except Exception as e:
+        print(f"  Warning: Could not parse progress log from {task_file}: {e}")
+    
+    return entries
+
+
+def parse_task_frontmatter(task_file: Path) -> Dict:
+    """Parse YAML frontmatter from a task file."""
+    try:
+        content = task_file.read_text()
+        
+        # Extract frontmatter between ---
+        fm_match = re.match(r'^---\s*\n(.*?)\n---', content, re.DOTALL)
+        if not fm_match:
+            return {}
+        
+        frontmatter = {}
+        for line in fm_match.group(1).split('\n'):
+            line = line.strip()
+            if ':' in line and not line.startswith('#'):
+                key, value = line.split(':', 1)
+                frontmatter[key.strip()] = value.strip()
+        
+        return frontmatter
+    
+    except Exception as e:
+        print(f"  Warning: Could not parse frontmatter from {task_file}: {e}")
+        return {}
+
+
+def detect_jira_gaps(task_file: Path, task_data: Dict, jira_state: Dict) -> List[Dict]:
+    """
+    Compare local task state with Jira state to identify updates needed.
+    
+    Returns list of suggested updates:
+    [
+        {
+            'type': 'comment',
+            'content': 'Update 2024-12-30: ...',
+            'reason': 'Local progress since last Jira update',
+            'confidence': 'high'
+        },
+        {
+            'type': 'due_date',
+            'current': '2025-01-09',
+            'suggested': '2025-01-16',
+            'reason': 'Task due_date differs from Jira',
+            'confidence': 'medium'
+        }
+    ]
+    """
+    suggestions = []
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    # Get progress log entries
+    progress_entries = parse_progress_log(task_file)
+    
+    # --- Check 1: Local progress since last Jira comment ---
+    if progress_entries:
+        latest_entry = progress_entries[0]  # Most recent
+        latest_entry_date = latest_entry['date']
+        
+        # Compare with Jira's last comment date
+        jira_last_comment = jira_state.get('last_comment_date', '')
+        if jira_last_comment:
+            jira_comment_date = jira_last_comment[:10]  # Extract YYYY-MM-DD
+        else:
+            jira_comment_date = '1970-01-01'  # No comments = very old
+        
+        # If local progress is newer than Jira's last comment, suggest update
+        if latest_entry_date > jira_comment_date:
+            # Find all entries since last Jira comment
+            new_entries = [e for e in progress_entries if e['date'] > jira_comment_date]
+            
+            if new_entries:
+                # Generate comment content
+                summary_points = []
+                for entry in new_entries[:3]:  # Max 3 most recent
+                    summary_points.append(f"- {entry['content'][:150]}")
+                
+                comment_content = f"Update {today}: " + "\n".join(summary_points)
+                
+                # Add next action if available
+                next_action = task_data.get('next_action', '')
+                next_action_due = task_data.get('next_action_due', '')
+                if next_action:
+                    comment_content += f"\n\nNext: {next_action}"
+                    if next_action_due:
+                        comment_content += f" (by {next_action_due})"
+                
+                suggestions.append({
+                    'type': 'comment',
+                    'content': comment_content,
+                    'reason': f'Local progress since {jira_comment_date}',
+                    'confidence': 'high'
+                })
+    
+    # --- Check 2: Due date mismatch ---
+    task_due = task_data.get('due_date', '')
+    jira_due = jira_state.get('due_date', '')
+    
+    if task_due and jira_due and task_due != jira_due:
+        suggestions.append({
+            'type': 'due_date',
+            'current': jira_due,
+            'suggested': task_due,
+            'reason': 'Local task due_date differs from Jira',
+            'confidence': 'medium'
+        })
+    elif task_due and not jira_due:
+        suggestions.append({
+            'type': 'due_date',
+            'current': 'Not set',
+            'suggested': task_due,
+            'reason': 'Jira has no due date but task has one',
+            'confidence': 'medium'
+        })
+    
+    # --- Check 3: Status mismatch (task done but Jira not) ---
+    task_status = task_data.get('status', '')
+    jira_status = jira_state.get('status', '').lower()
+    
+    if task_status == 'd' and jira_status not in ['done', 'closed', 'resolved']:
+        suggestions.append({
+            'type': 'transition',
+            'current': jira_state.get('status', ''),
+            'suggested': 'Done',
+            'reason': 'Local task is marked done but Jira is not',
+            'confidence': 'high'
+        })
+    
+    return suggestions
+
+
+def scan_tasks_for_jira_updates(config: Dict[str, str]) -> List[Dict]:
+    """
+    Scan all task files and detect Jira updates needed.
+    
+    Returns list of suggestions grouped by Jira card:
+    [
+        {
+            'jira_key': 'MRC-3266',
+            'jira_title': 'Beta Rollout Scope Document',
+            'jira_url': 'https://...',
+            'task_file': 'Tasks/001-beta-rollout-scope-document.md',
+            'task_title': 'Finish Troy\'s CC Beta rollout scope document',
+            'updates': [...]
+        }
+    ]
+    """
+    tasks_dir = Path(config.get("TASKS_DIR", "Tasks"))
+    all_suggestions = []
+    
+    print("\n🔍 Scanning tasks for Jira sync opportunities...")
+    
+    task_files = list(tasks_dir.glob("*.md"))
+    task_files = [f for f in task_files if f.name != "README.md"]
+    
+    print(f"  Found {len(task_files)} task files")
+    
+    for task_file in task_files:
+        # Parse task data
+        task_data = parse_task_frontmatter(task_file)
+        task_title = task_data.get('title', task_file.stem)
+        
+        # Skip done tasks (already archived typically)
+        if task_data.get('status') == 'd':
+            continue
+        
+        # Extract Jira keys
+        jira_keys = extract_jira_keys(task_file)
+        
+        if not jira_keys:
+            continue
+        
+        print(f"  📄 {task_file.name} → Jira: {', '.join(jira_keys)}")
+        
+        for jira_key in jira_keys:
+            # Fetch Jira state
+            jira_state = fetch_jira_issue_state(config, jira_key)
+            
+            if not jira_state:
+                print(f"    ⚠️ Could not fetch {jira_key}")
+                continue
+            
+            # Detect gaps
+            updates = detect_jira_gaps(task_file, task_data, jira_state)
+            
+            if updates:
+                print(f"    ✨ Found {len(updates)} update(s) for {jira_key}")
+                all_suggestions.append({
+                    'jira_key': jira_key,
+                    'jira_title': jira_state.get('summary', ''),
+                    'jira_url': jira_state.get('url', ''),
+                    'jira_status': jira_state.get('status', ''),
+                    'task_file': str(task_file),
+                    'task_title': task_title,
+                    'updates': updates
+                })
+    
+    print(f"\n📊 Total: {len(all_suggestions)} card(s) with suggested updates")
+    
+    return all_suggestions
+
+
+def save_pending_jira_updates(suggestions: List[Dict]):
+    """Save suggestions to pending file for later review."""
+    pending_file = SCRIPT_DIR / ".jira-sync-pending.json"
+    
+    data = {
+        'generated': datetime.now().isoformat(),
+        'suggestions': suggestions
+    }
+    
+    with open(pending_file, 'w') as f:
+        json.dump(data, f, indent=2)
+    
+    print(f"\n💾 Saved to {pending_file}")
+    return pending_file
+
+
+def jira_sync_detect(config: Dict[str, str]):
+    """
+    Phase 1: Detect and save Jira update suggestions.
+    Run this from Daily Closing or manually.
+    """
+    suggestions = scan_tasks_for_jira_updates(config)
+    
+    if not suggestions:
+        print("\n✅ All Jira cards are up to date!")
+        return
+    
+    # Save for later review
+    pending_file = save_pending_jira_updates(suggestions)
+    
+    # Print summary
+    print("\n" + "="*60)
+    print("📝 JIRA SYNC SUGGESTIONS")
+    print("="*60)
+    
+    for i, suggestion in enumerate(suggestions, 1):
+        print(f"\n[{i}] {suggestion['jira_key']}: {suggestion['jira_title'][:50]}")
+        print(f"    🔗 {suggestion['jira_url']}")
+        print(f"    📄 Task: {suggestion['task_title'][:50]}")
+        print(f"    Updates: {len(suggestion['updates'])}")
+        for update in suggestion['updates']:
+            print(f"      • {update['type']}: {update['reason']}")
+    
+    print("\n" + "="*60)
+    print(f"To review and post: python3 scripts/logbook-local.py jira-sync")
+    print("="*60)
+
+
+def edit_jira_update(update: Dict) -> Optional[Dict]:
+    """
+    Open update in user's preferred editor for modification.
+    Returns modified update dict, or None if cancelled.
+    """
+    import tempfile
+    
+    update_type = update['type']
+    
+    # Build content based on type
+    if update_type == 'comment':
+        header = f"""# Edit Jira Comment
+# Lines starting with # are ignored
+# Save and close to apply changes
+# ─────────────────────────────────────────────────
+
+"""
+        content = update.get('content', '')
+    
+    elif update_type == 'due_date':
+        header = f"""# Edit Due Date
+# Change the date on the 'New:' line (format: YYYY-MM-DD)
+# Save and close to apply
+# ─────────────────────────────────────────────────
+
+Current: {update.get('current', 'Not set')}
+New: """
+        content = update.get('suggested', '')
+    
+    elif update_type == 'description':
+        header = f"""# Edit Jira Description Addition
+# Lines starting with # are ignored
+# Save and close to apply
+# ─────────────────────────────────────────────────
+
+"""
+        content = update.get('content', '')
+    
+    else:
+        print(f"❌ Edit not supported for type: {update_type}")
+        return None
+    
+    # Write to temp file
+    with tempfile.NamedTemporaryFile(
+        mode='w',
+        suffix='.md',
+        delete=False,
+        prefix='jira-edit-'
+    ) as f:
+        f.write(header + content)
+        temp_path = f.name
+    
+    # Get user's preferred editor
+    editor = os.environ.get('EDITOR', os.environ.get('VISUAL', 'nano'))
+    
+    # Open in editor and wait
+    print(f"📝 Opening in {editor}...")
+    result = subprocess.run([editor, temp_path])
+    
+    if result.returncode != 0:
+        print("❌ Editor exited with error. Skipping this update.")
+        os.unlink(temp_path)
+        return None
+    
+    # Read back edited content
+    with open(temp_path) as f:
+        edited_lines = f.readlines()
+    
+    os.unlink(temp_path)
+    
+    # Filter out comment lines and extract content
+    if update_type == 'due_date':
+        # Find the "New: " line
+        for line in edited_lines:
+            if line.strip().startswith('New:'):
+                new_date = line.replace('New:', '').strip()
+                if new_date and re.match(r'\d{4}-\d{2}-\d{2}', new_date):
+                    update['suggested'] = new_date
+                    return update
+                else:
+                    print(f"❌ Invalid date format: {new_date}. Use YYYY-MM-DD.")
+                    return None
+        print("❌ Could not find 'New:' line in edited content.")
+        return None
+    else:
+        # Filter comment lines for text content
+        edited_content = ''.join(
+            line for line in edited_lines
+            if not line.strip().startswith('#')
+        ).strip()
+        
+        if not edited_content:
+            print("❌ Empty content after editing. Skipping.")
+            return None
+        
+        # Show diff preview
+        original = update.get('content', '')[:100]
+        edited = edited_content[:100]
+        
+        print(f"\n📝 Your changes:")
+        print(f"   Before: {original}...")
+        print(f"   After:  {edited}...")
+        
+        confirm = input("\nApply these changes? [Y/n]: ").lower().strip()
+        if confirm in ['', 'y', 'yes']:
+            update['content'] = edited_content
+            return update
+        else:
+            print("Changes discarded.")
+            return None
+
+
+def execute_jira_comment(config: Dict[str, str], jira_key: str, comment: str) -> bool:
+    """
+    Post a comment to a Jira issue via REST API.
+    Returns True on success.
+    """
+    domain = config.get("ATLASSIAN_DOMAIN")
+    email = config.get("ATLASSIAN_EMAIL")
+    token = config.get("ATLASSIAN_API_TOKEN")
+    
+    if not all([domain, email, token]):
+        print("❌ Atlassian credentials not configured")
+        return False
+    
+    url = f"https://{domain}/rest/api/3/issue/{jira_key}/comment"
+    auth = base64.b64encode(f"{email}:{token}".encode()).decode()
+    headers = {
+        "Authorization": f"Basic {auth}",
+        "Content-Type": "application/json"
+    }
+    
+    # Convert plain text to ADF (Atlassian Document Format)
+    adf_body = {
+        "body": {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": comment}
+                    ]
+                }
+            ]
+        }
+    }
+    
+    payload = json.dumps(adf_body).encode()
+    response = api_request(url, headers, payload, method="POST")
+    
+    if response and response.get("id"):
+        return True
+    return False
+
+
+def execute_jira_due_date(config: Dict[str, str], jira_key: str, due_date: str) -> bool:
+    """
+    Update the due date of a Jira issue via REST API.
+    Returns True on success.
+    """
+    domain = config.get("ATLASSIAN_DOMAIN")
+    email = config.get("ATLASSIAN_EMAIL")
+    token = config.get("ATLASSIAN_API_TOKEN")
+    
+    if not all([domain, email, token]):
+        print("❌ Atlassian credentials not configured")
+        return False
+    
+    url = f"https://{domain}/rest/api/3/issue/{jira_key}"
+    auth = base64.b64encode(f"{email}:{token}".encode()).decode()
+    headers = {
+        "Authorization": f"Basic {auth}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = json.dumps({
+        "fields": {
+            "duedate": due_date
+        }
+    }).encode()
+    
+    response = api_request(url, headers, payload, method="PUT")
+    
+    # PUT returns empty on success
+    return response is not None or True  # api_request returns None on 204
+
+
+def execute_jira_transition(config: Dict[str, str], jira_key: str, target_status: str) -> bool:
+    """
+    Transition a Jira issue to a new status.
+    Returns True on success.
+    """
+    domain = config.get("ATLASSIAN_DOMAIN")
+    email = config.get("ATLASSIAN_EMAIL")
+    token = config.get("ATLASSIAN_API_TOKEN")
+    
+    if not all([domain, email, token]):
+        print("❌ Atlassian credentials not configured")
+        return False
+    
+    auth = base64.b64encode(f"{email}:{token}".encode()).decode()
+    headers = {
+        "Authorization": f"Basic {auth}",
+        "Content-Type": "application/json"
+    }
+    
+    # First, get available transitions
+    transitions_url = f"https://{domain}/rest/api/3/issue/{jira_key}/transitions"
+    transitions = api_request(transitions_url, headers)
+    
+    if not transitions:
+        print(f"❌ Could not fetch transitions for {jira_key}")
+        return False
+    
+    # Find the target transition
+    target_transition = None
+    target_lower = target_status.lower()
+    for t in transitions.get("transitions", []):
+        if t.get("name", "").lower() == target_lower or t.get("to", {}).get("name", "").lower() == target_lower:
+            target_transition = t
+            break
+    
+    if not target_transition:
+        available = [t.get("name") for t in transitions.get("transitions", [])]
+        print(f"❌ Transition to '{target_status}' not available.")
+        print(f"   Available: {', '.join(available)}")
+        return False
+    
+    # Execute the transition
+    payload = json.dumps({
+        "transition": {"id": target_transition["id"]}
+    }).encode()
+    
+    response = api_request(transitions_url, headers, payload, method="POST")
+    return True  # Transition POST returns 204 No Content on success
+
+
+def fallback_to_clipboard(update: Dict, jira_key: str, jira_url: str):
+    """Copy update content to clipboard with instructions."""
+    content = ""
+    
+    if update['type'] == 'comment':
+        content = update.get('content', '')
+    elif update['type'] == 'due_date':
+        content = f"Due date: {update.get('suggested', '')}"
+    elif update['type'] == 'transition':
+        content = f"Status: {update.get('suggested', '')}"
+    
+    try:
+        subprocess.run(['pbcopy'], input=content.encode(), check=True)
+        print(f"📋 Copied to clipboard!")
+        print(f"   Open {jira_url} and paste manually.")
+    except Exception as e:
+        print(f"❌ Could not copy to clipboard: {e}")
+        print(f"   Content: {content[:200]}...")
+
+
+def execute_jira_update(config: Dict[str, str], jira_key: str, jira_url: str, update: Dict) -> bool:
+    """
+    Execute a single Jira update. Returns True on success.
+    Falls back to clipboard if API fails.
+    """
+    update_type = update['type']
+    success = False
+    
+    try:
+        if update_type == 'comment':
+            success = execute_jira_comment(config, jira_key, update['content'])
+        elif update_type == 'due_date':
+            success = execute_jira_due_date(config, jira_key, update['suggested'])
+        elif update_type == 'transition':
+            success = execute_jira_transition(config, jira_key, update['suggested'])
+        else:
+            print(f"❌ Unknown update type: {update_type}")
+            return False
+        
+        if success:
+            print(f"✅ {update_type.upper()} posted to {jira_key}")
+            return True
+        else:
+            print(f"❌ API failed. Falling back to clipboard...")
+            fallback_to_clipboard(update, jira_key, jira_url)
+            return False
+    
+    except Exception as e:
+        print(f"❌ Error executing update: {e}")
+        fallback_to_clipboard(update, jira_key, jira_url)
+        return False
+
+
+def log_to_task_progress(task_file: str, jira_key: str, update: Dict):
+    """Log successful Jira update to task's Progress Log."""
+    try:
+        task_path = Path(task_file)
+        if not task_path.exists():
+            return
+        
+        content = task_path.read_text()
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        # Build log entry
+        update_type = update['type']
+        if update_type == 'comment':
+            log_entry = f"- {today}: [Jira Sync] Posted comment to {jira_key}"
+        elif update_type == 'due_date':
+            log_entry = f"- {today}: [Jira Sync] Updated {jira_key} due date to {update.get('suggested')}"
+        elif update_type == 'transition':
+            log_entry = f"- {today}: [Jira Sync] Transitioned {jira_key} to {update.get('suggested')}"
+        else:
+            log_entry = f"- {today}: [Jira Sync] Updated {jira_key}"
+        
+        # Find Progress Log section and append
+        if '## Progress Log' in content:
+            # Insert after ## Progress Log header
+            parts = content.split('## Progress Log')
+            if len(parts) == 2:
+                header_end = parts[1].find('\n')
+                if header_end == -1:
+                    header_end = 0
+                new_content = parts[0] + '## Progress Log' + parts[1][:header_end+1] + log_entry + '\n' + parts[1][header_end+1:]
+                task_path.write_text(new_content)
+                print(f"   📝 Logged to {task_path.name}")
+    except Exception as e:
+        print(f"   ⚠️ Could not log to task file: {e}")
+
+
+def log_agent_feedback(workflow: str, suggestion_type: str, action: str):
+    """
+    Track user approval/rejection patterns for learning.
+    Logs minimal data to Knowledge/agent-feedback.yaml
+    """
+    feedback_file = SCRIPT_DIR.parent / "Knowledge" / "agent-feedback.yaml"
+    
+    try:
+        # Ensure directory exists
+        feedback_file.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Load existing feedback
+        entries = []
+        if feedback_file.exists():
+            content = feedback_file.read_text()
+            # Simple YAML-like parsing (avoid dependency)
+            for line in content.split('\n'):
+                if line.strip().startswith('- date:'):
+                    entries.append({})
+                elif entries and ':' in line:
+                    key, value = line.strip().strip('- ').split(':', 1)
+                    entries[-1][key.strip()] = value.strip()
+        
+        # Add new entry
+        today = datetime.now().strftime('%Y-%m-%d')
+        new_entry = f"""- date: "{today}"
+  workflow: "{workflow}"
+  suggestion_type: "{suggestion_type}"
+  action: "{action}"
+"""
+        
+        # Append to file
+        with open(feedback_file, 'a') as f:
+            if not feedback_file.exists() or feedback_file.stat().st_size == 0:
+                f.write("# Agent Feedback Log\n# Tracks approval/rejection patterns for system learning\n\nfeedback:\n")
+            f.write(new_entry)
+    
+    except Exception as e:
+        # Non-critical, don't interrupt flow
+        pass
+
+
+def jira_sync_review(config: Dict[str, str]):
+    """
+    Phase 3+4: Interactive review and execution of pending Jira updates.
+    
+    For each suggestion:
+    - Show preview with hyperlinked card name
+    - Allow: [A]pprove / [E]dit / [S]kip / [Q]uit
+    - Execute approved updates via REST API
+    - Fall back to clipboard if API fails
+    - Log successful updates to task Progress Log
+    """
+    pending_file = SCRIPT_DIR / ".jira-sync-pending.json"
+    
+    if not pending_file.exists():
+        print("❌ No pending Jira updates found.")
+        print("   Run 'jira-detect' first to scan for updates.")
+        return
+    
+    # Load pending suggestions
+    with open(pending_file) as f:
+        data = json.load(f)
+    
+    suggestions = data.get('suggestions', [])
+    generated = data.get('generated', 'unknown')
+    
+    if not suggestions:
+        print("✅ No pending updates!")
+        pending_file.unlink()
+        return
+    
+    # Check if file is stale (>24h old)
+    try:
+        gen_time = datetime.fromisoformat(generated)
+        age_hours = (datetime.now() - gen_time).total_seconds() / 3600
+        if age_hours > 24:
+            print(f"⚠️ Warning: Pending file is {age_hours:.1f} hours old.")
+            print("   Consider running 'jira-detect' again for fresh data.")
+            if input("   Continue anyway? [y/N]: ").lower() != 'y':
+                return
+    except:
+        pass
+    
+    print("\n" + "="*60)
+    print("📝 JIRA SYNC - Review Pending Updates")
+    print("="*60)
+    print(f"Generated: {generated}")
+    print(f"Cards: {len(suggestions)}")
+    print("\nCommands: [A]pprove / [E]dit / [S]kip / [Q]uit")
+    
+    approved_count = 0
+    skipped_count = 0
+    failed_count = 0
+    
+    for i, suggestion in enumerate(suggestions, 1):
+        jira_key = suggestion['jira_key']
+        jira_title = suggestion['jira_title']
+        jira_url = suggestion['jira_url']
+        task_file = suggestion['task_file']
+        task_title = suggestion['task_title']
+        updates = suggestion['updates']
+        
+        print(f"\n{'='*60}")
+        print(f"[{i}/{len(suggestions)}] 📋 {jira_key}: {jira_title}")
+        print(f"🔗 {jira_url}")
+        print(f"📄 Task: {task_title}")
+        print("="*60)
+        
+        for j, update in enumerate(updates, 1):
+            update_type = update['type'].upper()
+            reason = update.get('reason', '')
+            confidence = update.get('confidence', 'medium')
+            
+            print(f"\n[{j}/{len(updates)}] {update_type} ({confidence} confidence)")
+            print(f"Reason: {reason}")
+            print("-"*50)
+            
+            # Show preview based on type
+            if update['type'] == 'comment':
+                print(update['content'])
+            elif update['type'] == 'due_date':
+                print(f"Current:   {update.get('current', 'Not set')}")
+                print(f"Suggested: {update.get('suggested', 'Not set')}")
+            elif update['type'] == 'transition':
+                print(f"Current:   {update.get('current', 'Unknown')}")
+                print(f"Suggested: {update.get('suggested', 'Done')}")
+            
+            print("-"*50)
+            
+            # Prompt for action
+            choice = input("\n[A]pprove / [E]dit / [S]kip / [Q]uit: ").lower().strip()
+            
+            if choice == 'q':
+                print("\n⏹️ Quitting. Remaining updates saved for later.")
+                # Save remaining suggestions
+                remaining = suggestions[i-1:]
+                remaining[0]['updates'] = updates[j-1:]
+                save_pending_jira_updates(remaining)
+                return
+            
+            elif choice == 'a':
+                success = execute_jira_update(config, jira_key, jira_url, update)
+                if success:
+                    approved_count += 1
+                    log_to_task_progress(task_file, jira_key, update)
+                    log_agent_feedback("jira_sync", update['type'], "approved")
+                else:
+                    failed_count += 1
+                    log_agent_feedback("jira_sync", update['type'], "failed")
+            
+            elif choice == 'e':
+                edited = edit_jira_update(update)
+                if edited:
+                    success = execute_jira_update(config, jira_key, jira_url, edited)
+                    if success:
+                        approved_count += 1
+                        log_to_task_progress(task_file, jira_key, edited)
+                        log_agent_feedback("jira_sync", update['type'], "approved_edited")
+                    else:
+                        failed_count += 1
+                        log_agent_feedback("jira_sync", update['type'], "failed")
+                else:
+                    skipped_count += 1
+                    log_agent_feedback("jira_sync", update['type'], "edit_cancelled")
+            
+            else:  # 's' or any other
+                print("⏭️ Skipped")
+                skipped_count += 1
+                log_agent_feedback("jira_sync", update['type'], "skipped")
+    
+    # Cleanup
+    pending_file.unlink()
+    
+    print("\n" + "="*60)
+    print("✅ JIRA SYNC COMPLETE")
+    print("="*60)
+    print(f"✅ Approved & Posted: {approved_count}")
+    print(f"⏭️ Skipped:          {skipped_count}")
+    if failed_count:
+        print(f"❌ Failed (clipboard): {failed_count}")
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
@@ -1323,6 +2230,8 @@ def main():
         print("  enrich        - Show prompt for Cursor to search Slack")
         print("  enrich-agent  - Use Agent Orchestrator for smart enrichment")
         print("  post-context  - Post .slack-context.md to Logbook thread")
+        print("  jira-detect   - Scan tasks and detect Jira updates needed")
+        print("  jira-sync     - Review and post pending Jira updates")
         sys.exit(1)
     
     command = sys.argv[1].lower()
@@ -1348,9 +2257,13 @@ def main():
         enrich_with_agent(config, raw_file)
     elif command == "post-context":
         post_context_from_file(config)
+    elif command == "jira-detect":
+        jira_sync_detect(config)
+    elif command == "jira-sync":
+        jira_sync_review(config)
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: briefing, closing, weekly, enrich, enrich-agent, post-context")
+        print("Available commands: briefing, closing, weekly, enrich, enrich-agent, post-context, jira-detect, jira-sync")
         sys.exit(1)
     
     print("\n✅ Done!")

@@ -211,6 +211,28 @@ For complex tasks, delegate to workflow files in `examples/workflows/`:
 | Processing backlog | `examples/workflows/backlog-processing.md` | Reference for backlog flow |
 | Weekly reflection | `examples/workflows/weekly-review.md` | Weekly review prompts |
 
+## Jira Sync (One-Click Updates)
+
+Personal OS can detect when local task progress is newer than linked Jira cards and suggest updates:
+
+| Command | Description |
+|---------|-------------|
+| `jira-detect` | Scan tasks, detect stale Jira cards, save suggestions |
+| `jira-sync` | Review pending suggestions: Approve / Edit / Skip |
+
+**Flow:**
+1. Daily Closing automatically runs detection
+2. Suggestions posted in thread: "🔄 3 Jira sync suggestions"
+3. Run `python3 scripts/logbook-local.py jira-sync`
+4. For each update: approve (post immediately), edit (opens $EDITOR), or skip
+5. Approved updates post via Jira REST API
+6. Logged to task's Progress Log automatically
+
+**Update Types Detected:**
+- **Comment**: Local progress newer than Jira's last comment
+- **Due Date**: Task due_date differs from Jira
+- **Status Transition**: Task marked done but Jira isn't
+
 ## Helpful Prompts to Encourage
 - "Clear my backlog" / "Process my backlog"
 - "Archive my completed tasks" / "Archive done tasks"
@@ -222,6 +244,7 @@ For complex tasks, delegate to workflow files in `examples/workflows/`:
 - "Show me archived tasks from [month/year]"
 - "Search my Slack for task updates"
 - "Update my prioritization rules"
+- "Sync my Jira cards" / "Review Jira updates"
 
 ## Interaction Style
 - Be direct, friendly, and concise.

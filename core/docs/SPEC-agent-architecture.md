@@ -857,15 +857,18 @@ Update 2024-12-30: Completed review of jira-test-cases.md. 10 BA Initiatives,
 2. Generates suggested updates (comment, due date, status, etc.)
 3. User reviews each update type with hyperlinked card name
 4. On approval:
-   - Comment: addCommentToJiraIssue(issueIdOrKey, commentBody)
-   - Due Date: editJiraIssue(issueIdOrKey, {fields: {duedate: "YYYY-MM-DD"}})
-   - Description: editJiraIssue(issueIdOrKey, {fields: {description: updatedDesc}})
-   - Status: transitionJiraIssue(issueIdOrKey, transitionId)
+   - Comment: POST /rest/api/3/issue/{key}/comment
+   - Due Date: PUT /rest/api/3/issue/{key} with fields.duedate
+   - Description: PUT /rest/api/3/issue/{key} with fields.description
+   - Status: POST /rest/api/3/issue/{key}/transitions
 5. Show confirmation per update: "✓ Comment posted" / "✓ Due date updated"
-6. Offer 30-second undo where applicable
-7. Fallback if MCP fails: Copy to clipboard with manual instructions
-8. Log all executions in task's Progress Log
+6. Fallback if API fails: Copy to clipboard with manual instructions
+7. Log all executions in task's Progress Log
 ```
+
+**Implementation Note:** Uses Jira REST API directly (not MCP) for reliability. 
+REST API works in CLI, GitHub Actions, and any environment with network access.
+Uses existing `ATLASSIAN_*` credentials from `.env`.
 
 **Archive Flow:** (Existing Implementation - `examples/workflows/archive-tasks.md`)
 
