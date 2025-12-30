@@ -828,6 +828,185 @@ TASK DETAILS:
     return main_report, thread
 
 
+def find_recent_logbook_message(config: Dict[str, str]) -> Optional[Dict]:
+    """Find the most recent Logbook message in the DM channel."""
+    token = config.get("SLACK_BOT_TOKEN")
+    channel = config.get("SLACK_CHANNEL_ID")
+    
+    if not token or not channel:
+        return None
+    
+    # Get recent messages from the DM
+    url = f"https://slack.com/api/conversations.history?channel={channel}&limit=20"
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    response = api_request(url, headers)
+    
+    if not response or not response.get("ok"):
+        error = response.get('error', 'unknown') if response else 'no response'
+        if error == "missing_scope":
+            print("  ⚠️ Bot needs 'im:history' scope to read DM history")
+            print("     Add this scope in Slack App settings and reinstall")
+        elif error == "channel_not_found":
+            print("  ⚠️ DM channel not found - bot may not have access")
+        else:
+            print(f"  Could not fetch DM history: {error}")
+        return None
+    
+    # Find a recent Logbook message (posted by bot)
+    for msg in response.get("messages", []):
+        # Check if it's from our bot and looks like a Logbook report
+        if msg.get("bot_id") or "P0 Tasks" in msg.get("text", "") or "Daily" in msg.get("text", ""):
+            return {
+                "ts": msg.get("ts"),
+                "text": msg.get("text", "")[:200],
+                "channel": channel
+            }
+    
+    return None
+
+
+def enrich_with_slack_context(config: Dict[str, str]):
+    """
+    Enrich the most recent Logbook thread with Slack context.
+    Uses Slack MCP or user token to read recent messages.
+    """
+    print("\n🔍 Finding recent Logbook message...")
+    
+    recent_msg = find_recent_logbook_message(config)
+    
+    # Try to get Slack user token for reading messages
+    user_token = get_slack_token(config)
+    
+    slack_context = None
+    if user_token:
+        print("\n📱 Fetching recent Slack activity with user token...")
+        slack_context = fetch_slack_activity_with_token(config, user_token)
+    
+    if slack_context and recent_msg:
+        # We have Slack context AND found the thread - analyze with AI and post
+        print("\n🤖 Analyzing Slack context with AI...")
+        
+        tasks = read_tasks(config)
+        
+        prompt = f"""Based on recent Slack activity, identify any updates or action items relevant to these tasks:
+
+TASKS:
+{tasks['task_details']}
+
+RECENT SLACK ACTIVITY:
+{slack_context}
+
+Generate a brief Slack message (under 1500 chars) with:
+1. Any task-related updates found in Slack
+2. Action items or follow-ups mentioned
+3. Important mentions or requests
+
+Format for Slack mrkdwn. If nothing relevant found, say "No task-related Slack activity detected."
+"""
+        
+        enrichment = get_ai_analysis(config, prompt, max_tokens=500)
+        
+        # Post to thread
+        post_to_thread(config, recent_msg["ts"], f"*💬 Slack Context*\n\n{enrichment}")
+        
+    else:
+        # Provide instructions for using Cursor's Slack MCP
+        tasks = read_tasks(config)
+        task_list = tasks.get('task_details', 'No tasks found')[:500]
+        
+        print("\n" + "=" * 60)
+        print("📋 USE CURSOR'S SLACK MCP")
+        print("=" * 60)
+        print("""
+To add Slack context to your Logbook, use Cursor's Slack MCP:
+
+1. Open Cursor IDE (or use this chat)
+2. Ask Cursor to search your recent Slack messages:
+""")
+        print("-" * 60)
+        print(f"""
+COPY THIS PROMPT TO CURSOR:
+
+"Using the Slack MCP, search my messages from the last 24 hours.
+Look for any updates, action items, or discussions related to:
+{task_list}
+
+Summarize what's relevant to my current tasks."
+""")
+        print("-" * 60)
+        print("""
+3. Review the findings and manually add to your Logbook thread
+
+Tip: You can also configure SLACK_USER_TOKEN in .env for 
+automatic enrichment (requires Slack admin approval).
+""")
+        print("=" * 60)
+
+
+def fetch_slack_activity_with_token(config: Dict[str, str], token: str) -> Optional[str]:
+    """Fetch recent Slack activity using user token."""
+    headers = {"Authorization": f"Bearer {token}"}
+    
+    # Search recent messages
+    query = "from:me"  # Messages from the user
+    url = f"https://slack.com/api/search.messages?query={query}&count=20&sort=timestamp"
+    
+    response = api_request(url, headers)
+    
+    if not response or not response.get("ok"):
+        print(f"  Slack search failed: {response.get('error', 'unknown')}")
+        return None
+    
+    messages = response.get("messages", {}).get("matches", [])
+    
+    if not messages:
+        return "_No recent Slack messages found_"
+    
+    # Format messages
+    output = []
+    for msg in messages[:10]:
+        channel = msg.get("channel", {}).get("name", "DM")
+        text = msg.get("text", "")[:200]
+        output.append(f"• #{channel}: {text}")
+    
+    return "\n".join(output)
+
+
+def post_to_thread(config: Dict[str, str], thread_ts: str, message: str):
+    """Post a message to an existing thread."""
+    token = config.get("SLACK_BOT_TOKEN")
+    channel = config.get("SLACK_CHANNEL_ID")
+    
+    if not token or not channel:
+        print("\n📨 Would post to thread:")
+        print(message)
+        return
+    
+    url = "https://slack.com/api/chat.postMessage"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = json.dumps({
+        "channel": channel,
+        "thread_ts": thread_ts,
+        "text": "Slack Context",
+        "blocks": [{
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": message[:2900]}
+        }]
+    }).encode()
+    
+    response = api_request(url, headers, payload, method="POST")
+    
+    if response and response.get("ok"):
+        print("✅ Posted Slack context to thread")
+    else:
+        print(f"❌ Could not post to thread: {response.get('error', 'unknown')}")
+
+
 def generate_weekly_review(config: Dict[str, str]) -> tuple:
     """Generate weekly review report. Returns (main_message, thread_message)."""
     print("\n📊 Generating Weekly Review...")
@@ -905,7 +1084,11 @@ TASK STATUS:
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
-        print("\nAvailable commands: briefing, closing, weekly")
+        print("\nAvailable commands:")
+        print("  briefing  - Morning focus report (8:30 AM)")
+        print("  closing   - End-of-day wrap-up (5:50 PM)")
+        print("  weekly    - Weekly review (Friday)")
+        print("  enrich    - Add Slack context to recent Logbook thread")
         sys.exit(1)
     
     command = sys.argv[1].lower()
@@ -923,9 +1106,11 @@ def main():
     elif command == "weekly":
         main_msg, thread_msg = generate_weekly_review(config)
         post_to_slack(config, main_msg, "Weekly Review", thread_msg)
+    elif command == "enrich":
+        enrich_with_slack_context(config)
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: briefing, closing, weekly")
+        print("Available commands: briefing, closing, weekly, enrich")
         sys.exit(1)
     
     print("\n✅ Done!")
