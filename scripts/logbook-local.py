@@ -400,15 +400,17 @@ def fetch_git_changes(config: Dict[str, str], days: int = 1) -> Dict[str, Any]:
 
 
 def read_tasks(config: Dict[str, str]) -> Dict[str, Any]:
-    """Read tasks from the Tasks directory, grouped by status."""
+    """Read tasks from the Tasks directory, grouped by status (Schema v2.0)."""
     tasks_dir = Path(config.get("TASKS_DIR", "Tasks"))
+    today = datetime.now().strftime("%Y-%m-%d")
     
     if not tasks_dir.exists():
         return {
             "p0_count": 0, "p1_count": 0, "blocked_count": 0, "done_count": 0, "total": 0,
             "p0_not_started": "", "p0_in_progress": "",
             "p1_not_started": "", "p1_in_progress": "",
-            "blocked_tasks": "", "task_details": "", "backlog_items": "✅ Clear!"
+            "blocked_tasks": "", "task_details": "", "backlog_items": "✅ Clear!",
+            "actions_due_today": ""
         }
     
     print("  Reading tasks...")
@@ -418,17 +420,27 @@ def read_tasks(config: Dict[str, str]) -> Dict[str, Any]:
         "P1": {"not_started": [], "in_progress": []},
         "blocked": [], "done": [], "all": []
     }
+    actions_due_today = []
     
     for filepath in tasks_dir.glob("*.md"):
+        if filepath.name == "README.md":
+            continue
+            
         with open(filepath) as f:
             content = f.read()
         
-        # Parse frontmatter
+        # Parse frontmatter (Schema v2.0 fields)
         title = priority = status = due_date = ""
+        next_action = next_action_due = ""
+        blocked_type = blocked_by = blocked_expected = ""
+        
         if content.startswith("---"):
             try:
                 frontmatter = content.split("---")[1]
                 for line in frontmatter.split("\n"):
+                    line = line.strip()
+                    if line.startswith("#"):  # Skip comments
+                        continue
                     if line.startswith("title:"):
                         title = line.split(":", 1)[1].strip()
                     elif line.startswith("priority:"):
@@ -437,6 +449,16 @@ def read_tasks(config: Dict[str, str]) -> Dict[str, Any]:
                         status = line.split(":", 1)[1].strip()
                     elif line.startswith("due_date:"):
                         due_date = line.split(":", 1)[1].strip()
+                    elif line.startswith("next_action:"):
+                        next_action = line.split(":", 1)[1].strip()
+                    elif line.startswith("next_action_due:"):
+                        next_action_due = line.split(":", 1)[1].strip()
+                    elif line.startswith("blocked_type:"):
+                        blocked_type = line.split(":", 1)[1].strip()
+                    elif line.startswith("blocked_by:"):
+                        blocked_by = line.split(":", 1)[1].strip()
+                    elif line.startswith("blocked_expected:"):
+                        blocked_expected = line.split(":", 1)[1].strip()
             except:
                 pass
         
@@ -450,13 +472,29 @@ def read_tasks(config: Dict[str, str]) -> Dict[str, Any]:
         task_info = {
             "title": title, "priority": priority, "status": status,
             "emoji": status_emoji, "status_text": status_text,
-            "due_date": due_date, "content": content, "filepath": str(filepath)
+            "due_date": due_date, "content": content, "filepath": str(filepath),
+            "next_action": next_action, "next_action_due": next_action_due,
+            "blocked_type": blocked_type, "blocked_by": blocked_by, 
+            "blocked_expected": blocked_expected
         }
         
         tasks["all"].append(task_info)
         
-        # Group by priority and status
-        if priority == "P0":
+        # Track actions due today or overdue (Schema v2.0 feature)
+        if next_action_due and next_action_due <= today and status not in ["b", "d"]:
+            actions_due_today.append({
+                "priority": priority,
+                "next_action": next_action,
+                "title": title,
+                "next_action_due": next_action_due
+            })
+        
+        # Group by priority and status (skip blocked from active lists)
+        if status == "b":
+            tasks["blocked"].append(task_info)
+        elif status == "d":
+            tasks["done"].append(task_info)
+        elif priority == "P0":
             if status == "n":
                 tasks["P0"]["not_started"].append(task_info)
             elif status in ["s", "ip"]:
@@ -466,17 +504,31 @@ def read_tasks(config: Dict[str, str]) -> Dict[str, Any]:
                 tasks["P1"]["not_started"].append(task_info)
             elif status in ["s", "ip"]:
                 tasks["P1"]["in_progress"].append(task_info)
-        
-        if status == "b":
-            tasks["blocked"].append(task_info)
-        if status == "d":
-            tasks["done"].append(task_info)
     
     def format_task_list(task_list):
         return "\n".join([f"• {t['title']}" for t in task_list])
     
     def format_tasks_detailed(task_list):
         return "\n".join([f"• {t['emoji']} [{t['priority']}] {t['title']} — {t['status_text']}" for t in task_list])
+    
+    def format_blocked_tasks(task_list):
+        """Format blocked tasks with blocked_by info (Schema v2.0)."""
+        lines = []
+        for t in task_list:
+            line = f"• {t['title']}"
+            if t.get('blocked_by'):
+                line += f" — _blocked by: {t['blocked_by']}_"
+            if t.get('blocked_expected'):
+                line += f" (check {t['blocked_expected']})"
+            lines.append(line)
+        return "\n".join(lines)
+    
+    def format_actions_due_today(actions):
+        """Format actions due today/overdue (Schema v2.0)."""
+        return "\n".join([
+            f"• {a['priority']}: {a['next_action']} ({a['title']})"
+            for a in sorted(actions, key=lambda x: (x.get('next_action_due', ''), x.get('priority', '')))
+        ])
     
     # Check backlog
     backlog_file = tasks_dir.parent / "BACKLOG.md"
@@ -492,7 +544,7 @@ def read_tasks(config: Dict[str, str]) -> Dict[str, Any]:
     p0_count = len(tasks["P0"]["not_started"]) + len(tasks["P0"]["in_progress"])
     p1_count = len(tasks["P1"]["not_started"]) + len(tasks["P1"]["in_progress"])
     
-    print(f"  Found {p0_count} P0 tasks, {p1_count} P1 tasks")
+    print(f"  Found {p0_count} P0 tasks, {p1_count} P1 tasks, {len(actions_due_today)} actions due today")
     
     return {
         "p0_count": p0_count,
@@ -504,8 +556,9 @@ def read_tasks(config: Dict[str, str]) -> Dict[str, Any]:
         "p0_in_progress": format_task_list(tasks["P0"]["in_progress"]),
         "p1_not_started": format_task_list(tasks["P1"]["not_started"]),
         "p1_in_progress": format_task_list(tasks["P1"]["in_progress"]),
-        "blocked_tasks": format_task_list(tasks["blocked"]),
+        "blocked_tasks": format_blocked_tasks(tasks["blocked"]),  # Schema v2.0: includes blocked_by
         "task_details": format_tasks_detailed(tasks["all"]),
+        "actions_due_today": format_actions_due_today(actions_due_today),  # Schema v2.0
         "backlog_items": backlog_items,
         "all_tasks": tasks["all"]
     }
@@ -1164,15 +1217,112 @@ TASK STATUS:
 # MAIN
 # ============================================================================
 
+def enrich_with_agent(config: Dict[str, str], raw_messages_file: str = None, auto_post: bool = True):
+    """
+    Use the Agent Orchestrator to generate intelligent Slack context summary.
+    
+    Args:
+        config: Configuration dict
+        raw_messages_file: Path to file containing raw Slack messages
+        auto_post: If True, automatically post to thread after generating
+    """
+    import subprocess
+    
+    script_dir = Path(__file__).parent
+    orchestrator_path = script_dir / "agent_orchestrator.py"
+    context_file = script_dir / ".slack-context.md"
+    
+    if not orchestrator_path.exists():
+        print("❌ Agent orchestrator not found at scripts/agent_orchestrator.py")
+        return
+    
+    # Check for raw messages file
+    if raw_messages_file:
+        raw_file = Path(raw_messages_file)
+        if not raw_file.exists():
+            print(f"❌ Raw messages file not found: {raw_messages_file}")
+            return
+    else:
+        # Check for default raw messages file
+        raw_file = script_dir / ".slack-raw.txt"
+        if not raw_file.exists():
+            print("❌ No raw messages file found")
+            print("\nTo use agent enrichment:")
+            print("1. Save raw Slack messages to scripts/.slack-raw.txt")
+            print("2. Run: python3 scripts/logbook-local.py enrich-agent")
+            print("\nOr provide a file path:")
+            print("   python3 scripts/logbook-local.py enrich-agent /path/to/messages.txt")
+            return
+    
+    print(f"📄 Reading raw messages from {raw_file}")
+    
+    # Load environment for LLM API
+    env = os.environ.copy()
+    env_file = script_dir / ".env"
+    if env_file.exists():
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, value = line.split("=", 1)
+                    env[key.strip()] = value.strip()
+    
+    print("🤖 Running Agent Orchestrator for Slack enrichment...")
+    
+    # Run the agent orchestrator
+    result = subprocess.run(
+        ["python3", str(orchestrator_path), "slack-enrich", str(raw_file)],
+        capture_output=True,
+        text=True,
+        env=env
+    )
+    
+    if result.returncode != 0:
+        print(f"❌ Agent orchestrator failed:")
+        print(result.stderr)
+        return
+    
+    # Extract the output (everything after "--- OUTPUT ---")
+    output = result.stdout
+    if "--- OUTPUT ---" in output:
+        enriched_content = output.split("--- OUTPUT ---")[1].strip()
+    else:
+        enriched_content = output.strip()
+    
+    if not enriched_content:
+        print("❌ No output generated from agent")
+        return
+    
+    print(f"✅ Generated enriched summary ({len(enriched_content)} chars)")
+    
+    # Save to context file
+    with open(context_file, "w") as f:
+        f.write(enriched_content)
+    print(f"💾 Saved to {context_file}")
+    
+    # Auto-post if requested
+    if auto_post:
+        print("\n📤 Auto-posting to thread...")
+        post_context_from_file(config)
+    else:
+        print(f"\nTo post, run: python3 scripts/logbook-local.py post-context")
+    
+    # Cleanup raw file
+    if raw_file.exists() and raw_file.name == ".slack-raw.txt":
+        raw_file.unlink()
+        print("🗑️ Cleaned up raw messages file")
+
+
 def main():
     if len(sys.argv) < 2:
         print(__doc__)
         print("\nAvailable commands:")
-        print("  briefing     - Morning focus report (8:30 AM)")
-        print("  closing      - End-of-day wrap-up (5:50 PM)")
-        print("  weekly       - Weekly review (Friday)")
-        print("  enrich       - Show prompt for Cursor to search Slack")
-        print("  post-context - Post .slack-context.md to Logbook thread")
+        print("  briefing      - Morning focus report (9:00 AM)")
+        print("  closing       - End-of-day wrap-up (5:30 PM)")
+        print("  weekly        - Weekly review (Friday)")
+        print("  enrich        - Show prompt for Cursor to search Slack")
+        print("  enrich-agent  - Use Agent Orchestrator for smart enrichment")
+        print("  post-context  - Post .slack-context.md to Logbook thread")
         sys.exit(1)
     
     command = sys.argv[1].lower()
@@ -1192,11 +1342,15 @@ def main():
         post_to_slack(config, main_msg, "Weekly Review", thread_msg)
     elif command == "enrich":
         enrich_with_slack_context(config)
+    elif command == "enrich-agent":
+        # Optional: pass file path as second argument
+        raw_file = sys.argv[2] if len(sys.argv) > 2 else None
+        enrich_with_agent(config, raw_file)
     elif command == "post-context":
         post_context_from_file(config)
     else:
         print(f"Unknown command: {command}")
-        print("Available commands: briefing, closing, weekly, enrich, post-context")
+        print("Available commands: briefing, closing, weekly, enrich, enrich-agent, post-context")
         sys.exit(1)
     
     print("\n✅ Done!")

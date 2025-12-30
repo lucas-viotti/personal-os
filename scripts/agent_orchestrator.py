@@ -464,22 +464,107 @@ def orchestrate(workflow_type: str) -> str:
     return output
 
 
+def enrich_slack_context(slack_messages: str) -> str:
+    """
+    Slack Enrichment Agent
+    
+    Takes raw Slack messages and generates a formatted, task-aware summary
+    using the Context Gatherer and Workflow agents.
+    """
+    print(f"\n{'='*60}")
+    print("[Orchestrator] Starting Slack Enrichment")
+    print(f"{'='*60}\n")
+    
+    # Step 1: Gather local task context
+    context = run_context_gatherer("24h")
+    print(f"[Orchestrator] Context gathered: {len(context['local_tasks']['all_tasks'])} tasks")
+    
+    # Step 2: Use LLM to analyze Slack messages and link to tasks
+    context_gatherer_instructions = load_agent_instructions("context-gatherer")
+    
+    system_prompt = f"""You are the Context Gatherer Agent for Personal OS, specialized in Slack message analysis.
+
+{context_gatherer_instructions}
+
+Your job is to:
+1. Categorize Slack messages by topic/project
+2. Extract action items from conversations
+3. Identify which messages relate to known tasks
+4. Highlight important decisions or updates
+
+Output in Slack mrkdwn format (not markdown).
+Use: *bold*, _italic_, • for bullets, no tables."""
+
+    tasks_summary = "\n".join([
+        f"- {t['title']} (P{t['priority'][-1] if t['priority'] else '?'}, {t['status']})"
+        for t in context['local_tasks']['all_tasks'][:10]
+    ])
+    
+    user_prompt = f"""Analyze these Slack messages and create a formatted summary.
+
+TODAY: {context['today']}
+
+KNOWN TASKS (for linking):
+{tasks_summary}
+
+RAW SLACK MESSAGES:
+{slack_messages}
+
+Generate a Slack-formatted summary with:
+1. *Key Conversations Today* - grouped by topic
+2. *Action Items* - extracted from messages
+3. *Task-Related Updates* - link to known tasks where relevant
+
+Use Slack mrkdwn:
+- *bold* for headers and emphasis
+- _italic_ for task names and secondary info
+- • for bullet points
+- No markdown tables (use bullets instead)
+
+Keep under 1500 characters for Slack."""
+
+    print("[Context Gatherer] Analyzing Slack messages...")
+    enriched_summary = call_llm(system_prompt, user_prompt, max_tokens=800, temperature=0.5)
+    
+    print(f"[Orchestrator] Enrichment complete: {len(enriched_summary)} characters")
+    print(f"{'='*60}\n")
+    
+    return enriched_summary
+
+
 def main():
     """Main entry point."""
     if len(sys.argv) < 2:
-        print("Usage: python agent_orchestrator.py <workflow-type>")
-        print("  workflow-type: daily-briefing | daily-closing | weekly-review")
+        print("Usage: python agent_orchestrator.py <workflow-type> [args]")
+        print("  workflow-type: daily-briefing | daily-closing | weekly-review | slack-enrich")
+        print("  For slack-enrich: provide path to file with raw Slack messages")
         sys.exit(1)
     
     workflow_type = sys.argv[1]
-    valid_workflows = ["daily-briefing", "daily-closing", "weekly-review"]
+    valid_workflows = ["daily-briefing", "daily-closing", "weekly-review", "slack-enrich"]
     
     if workflow_type not in valid_workflows:
         print(f"Error: Invalid workflow type '{workflow_type}'")
         print(f"Valid types: {', '.join(valid_workflows)}")
         sys.exit(1)
     
-    output = orchestrate(workflow_type)
+    if workflow_type == "slack-enrich":
+        # Read Slack messages from file or stdin
+        if len(sys.argv) > 2:
+            slack_file = Path(sys.argv[2])
+            if slack_file.exists():
+                slack_messages = slack_file.read_text()
+            else:
+                print(f"Error: File not found: {slack_file}")
+                sys.exit(1)
+        else:
+            # Read from stdin
+            print("Reading Slack messages from stdin...")
+            slack_messages = sys.stdin.read()
+        
+        output = enrich_slack_context(slack_messages)
+    else:
+        output = orchestrate(workflow_type)
     
     # Output to stdout (for GitHub Actions to capture)
     print("\n--- OUTPUT ---")
