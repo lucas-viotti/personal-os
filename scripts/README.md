@@ -173,6 +173,15 @@ If not listed, reinstall:
 ./scripts/setup-enrichment.sh
 ```
 
+### "My Mac was asleep/off when the report posted"
+
+No problem! The setup includes a **login/wake check** that:
+- Runs once when you log in or wake your Mac
+- Only prompts during work hours (8 AM - 7 PM)
+- Only prompts once per day (won't spam you)
+
+So even if you miss the exact time, you'll get the prompt when you start working!
+
 ### "Cursor doesn't have Slack MCP"
 
 The enrichment feature requires Cursor's Slack MCP integration. If your company doesn't have this set up, you can still:

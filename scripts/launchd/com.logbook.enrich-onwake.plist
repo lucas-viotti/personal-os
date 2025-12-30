@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.logbook.enrich-onwake</string>
+    
+    <!-- Run when user logs in -->
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string><![CDATA[
+# Only run during work hours (8am - 7pm)
+HOUR=$(date +%H)
+if [ "$HOUR" -lt 8 ] || [ "$HOUR" -gt 19 ]; then
+    exit 0
+fi
+
+# Check if we already ran today
+TODAY=$(date +%Y-%m-%d)
+MARKER_FILE="/tmp/logbook-enrich-$TODAY"
+
+if [ -f "$MARKER_FILE" ]; then
+    exit 0  # Already prompted today
+fi
+
+# Wait a bit for network/Slack to be ready
+sleep 10
+
+# Show the enrichment dialog
+RESULT=$(/usr/bin/osascript -e 'display dialog "Logbook may have posted while you were away!
+
+Add Slack context to your thread?" with title "📓 Logbook Enrichment" buttons {"Skip Today", "Open Cursor"} default button "Open Cursor"')
+
+if [[ "$RESULT" == *"Open Cursor"* ]]; then
+    cat << 'EOF' | pbcopy
+Search my Slack messages from the last 24 hours for updates related to my tasks. Follow these steps:
+
+1. Use Slack MCP to search my recent messages and conversations
+2. Identify any updates, decisions, or discussions relevant to my current tasks
+3. Create a brief summary and save it to: REPO_PATH/scripts/.slack-context.md
+4. Run this command to post the context to my Logbook Slack thread:
+   python3 REPO_PATH/scripts/logbook-local.py post-context
+5. Delete the temporary file:
+   rm REPO_PATH/scripts/.slack-context.md
+
+Do all steps automatically without asking for confirmation.
+EOF
+    open -a "Cursor"
+fi
+
+# Mark as prompted today (even if skipped)
+touch "$MARKER_FILE"
+]]></string>
+    </array>
+</dict>
+</plist>
+

@@ -17,31 +17,37 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_PATH="$(dirname "$SCRIPT_DIR")"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 PLIST_NAME="com.logbook.enrich.plist"
+PLIST_ONWAKE="com.logbook.enrich-onwake.plist"
 
 echo ""
 echo "🔔 Slack Enrichment Reminder Setup"
 echo "==================================="
 echo ""
-echo "This will install a reminder that appears after your Logbook posts."
+echo "This will install reminders that appear after your Logbook posts."
 echo "When it appears, just click 'Open Cursor' and paste the prompt!"
 echo ""
 
 # Create LaunchAgents directory if needed
 mkdir -p "$LAUNCH_AGENTS_DIR"
 
-# Unload if already installed
+# ============================================
+# Install scheduled reminder (exact times)
+# ============================================
 launchctl unload "$LAUNCH_AGENTS_DIR/$PLIST_NAME" 2>/dev/null || true
-
-# Copy plist and update paths
 sed "s|REPO_PATH|$REPO_PATH|g" "$SCRIPT_DIR/launchd/$PLIST_NAME" > "$LAUNCH_AGENTS_DIR/$PLIST_NAME"
-
-echo "✅ Installed reminder"
-echo ""
-
-# Load the agent
 launchctl load "$LAUNCH_AGENTS_DIR/$PLIST_NAME"
+echo "✅ Installed scheduled reminder (8:32 AM, 5:52 PM, Fri 4:02 PM)"
 
-echo "✅ Activated!"
+# ============================================
+# Install login/wake reminder (catch-up)
+# ============================================
+launchctl unload "$LAUNCH_AGENTS_DIR/$PLIST_ONWAKE" 2>/dev/null || true
+sed "s|REPO_PATH|$REPO_PATH|g" "$SCRIPT_DIR/launchd/$PLIST_ONWAKE" > "$LAUNCH_AGENTS_DIR/$PLIST_ONWAKE"
+launchctl load "$LAUNCH_AGENTS_DIR/$PLIST_ONWAKE"
+echo "✅ Installed login/wake reminder (catches missed prompts)"
+
+echo ""
+echo "✅ All reminders activated!"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
