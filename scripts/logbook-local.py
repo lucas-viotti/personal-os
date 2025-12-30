@@ -1080,7 +1080,7 @@ def post_to_thread(config: Dict[str, str], thread_ts: str, message: str, channel
     payload = json.dumps({
         "channel": channel,
         "thread_ts": thread_ts,
-        "text": "Slack Context",
+        "text": "Slack Activity Summary",
         "blocks": [{
             "type": "section",
             "text": {"type": "mrkdwn", "text": message[:2900]}

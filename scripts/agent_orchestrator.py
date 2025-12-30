@@ -514,21 +514,22 @@ RAW SLACK MESSAGES:
 
 Generate a Slack-formatted summary with this EXACT structure:
 
-*💬 Slack Activity Summary — {today_short}*
+*Slack Activity Summary — {today_short}*
 
 *Key Conversations Today*
-[Group messages by topic/project]
+[Group messages by topic/project with • bullets]
 
 *Action Items*
 [Extract action items from conversations]
 
 *Task-Related Updates*
-[Link relevant messages to known tasks]
+[Link relevant messages to known tasks where applicable]
 
 FORMATTING RULES:
 - Use Slack mrkdwn: *bold*, _italic_, • for bullets
 - No markdown tables (use bullets instead)
-- Do NOT add any footer like "Generated via..." 
+- Do NOT add ANY footer or header beyond what's shown above
+- No "Generated via..." text
 - Keep under 1200 characters total"""
 
     print("[Context Gatherer] Analyzing Slack messages...")
