@@ -500,6 +500,8 @@ Use: *bold*, _italic_, • for bullets, no tables."""
         for t in context['local_tasks']['all_tasks'][:10]
     ])
     
+    today_short = datetime.now().strftime("%B %d, %Y")
+    
     user_prompt = f"""Analyze these Slack messages and create a formatted summary.
 
 TODAY: {context['today']}
@@ -510,18 +512,24 @@ KNOWN TASKS (for linking):
 RAW SLACK MESSAGES:
 {slack_messages}
 
-Generate a Slack-formatted summary with:
-1. *Key Conversations Today* - grouped by topic
-2. *Action Items* - extracted from messages
-3. *Task-Related Updates* - link to known tasks where relevant
+Generate a Slack-formatted summary with this EXACT structure:
 
-Use Slack mrkdwn:
-- *bold* for headers and emphasis
-- _italic_ for task names and secondary info
-- • for bullet points
+*💬 Slack Activity Summary — {today_short}*
+
+*Key Conversations Today*
+[Group messages by topic/project]
+
+*Action Items*
+[Extract action items from conversations]
+
+*Task-Related Updates*
+[Link relevant messages to known tasks]
+
+FORMATTING RULES:
+- Use Slack mrkdwn: *bold*, _italic_, • for bullets
 - No markdown tables (use bullets instead)
-
-Keep under 1500 characters for Slack."""
+- Do NOT add any footer like "Generated via..." 
+- Keep under 1200 characters total"""
 
     print("[Context Gatherer] Analyzing Slack messages...")
     enriched_summary = call_llm(system_prompt, user_prompt, max_tokens=800, temperature=0.5)

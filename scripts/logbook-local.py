@@ -1134,8 +1134,8 @@ def post_context_from_file(config: Dict[str, str]):
     
     print(f"  Found thread: {recent_msg['text'][:50]}...")
     
-    # Post to thread
-    success = post_to_thread(config, recent_msg["ts"], f"*💬 Slack Context*\n\n{context}\n\n_Generated via Cursor Slack MCP_", recent_msg["channel"])
+    # Post to thread (context file should already be formatted)
+    success = post_to_thread(config, recent_msg["ts"], context, recent_msg["channel"])
     
     if success:
         # Delete the context file after successful post
