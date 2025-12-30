@@ -257,9 +257,9 @@ jobs:
             # Track actions due today or overdue
             if [ -n "$NEXT_ACTION_DUE" ] && [ "$STATUS" != "b" ]; then
               if [ "$NEXT_ACTION_DUE" \<= "$TODAY" ]; then
-                ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• 🔴 ${NEXT_ACTION} — _${TITLE}_ (P0)\n"
+                ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• 🚩 ${NEXT_ACTION} — _${TITLE}_\n"
               elif [ "$NEXT_ACTION_DUE" \<= "$WEEK_END" ]; then
-                ACTIONS_DUE_WEEK="${ACTIONS_DUE_WEEK}• 🔴 ${NEXT_ACTION} — _${TITLE}_ (due ${NEXT_ACTION_DUE})\n"
+                ACTIONS_DUE_WEEK="${ACTIONS_DUE_WEEK}• 🚩 ${NEXT_ACTION} — _${TITLE}_ (due ${NEXT_ACTION_DUE})\n"
               fi
             fi
           done
@@ -292,9 +292,9 @@ jobs:
             # Track actions due today or overdue
             if [ -n "$NEXT_ACTION_DUE" ] && [ "$STATUS" != "b" ]; then
               if [ "$NEXT_ACTION_DUE" \<= "$TODAY" ]; then
-                ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• 🟡 ${NEXT_ACTION} — _${TITLE}_ (P1)\n"
+                ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• 📌 ${NEXT_ACTION} — _${TITLE}_\n"
               elif [ "$NEXT_ACTION_DUE" \<= "$WEEK_END" ]; then
-                ACTIONS_DUE_WEEK="${ACTIONS_DUE_WEEK}• 🟡 ${NEXT_ACTION} — _${TITLE}_ (due ${NEXT_ACTION_DUE})\n"
+                ACTIONS_DUE_WEEK="${ACTIONS_DUE_WEEK}• 📌 ${NEXT_ACTION} — _${TITLE}_ (due ${NEXT_ACTION_DUE})\n"
               fi
             fi
           done
@@ -447,18 +447,20 @@ jobs:
           *☀️ Daily Briefing — [TODAY's DATE]*
 
           *🎯 Actions Due Today*
-          [List actions with next_action_due = TODAY or OVERDUE, with their parent task]
-          • [next_action] — _[task name]_
+          [List actions with next_action_due = TODAY or OVERDUE]
+          • 🚩 [next_action] — _[task name]_ (for P0 critical tasks)
+          • 📌 [next_action] — _[task name]_ (for P1 important tasks)
           [If none due today, write: "_No actions due today._"]
 
           *📅 Actions Due This Week*
-          [List actions with next_action_due within the next 7 days, grouped by priority]
-          • 🔴 [P0 action] — _[task name]_ (due [date])
-          • 🟡 [P1 action] — _[task name]_ (due [date])
+          [List actions with next_action_due within next 7 days, NOT today]
+          • 🚩 [next_action] — _[task name]_ (due [date])
+          • 📌 [next_action] — _[task name]_ (due [date])
           [If none, skip this section]
 
-          *⏳ Tracking (Blocked)*
-          • [task name] — _blocked by: [who/what]_
+          *🚫 Tracking (Blocked)*
+          • [task name]
+          _Blocked by: [who/what]_
           [If no blocked tasks, skip this section]
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -466,20 +468,23 @@ jobs:
           *💡 AI Focus Recommendation*
           Based on your deadlines, priorities, and recent activity:
 
-          • 🔴 *[next_action]* — [task name]
-          _Due: [date]. [1-2 sentences explaining why this is prioritized. Reference deadline, blocking others, or goal alignment.]_
+          • 🚩 *[next_action]* — [task name]
+          _Due: [date]. [1-2 sentences explaining why this is prioritized.]_
 
-          • 🟡 *[next_action]* — [task name]
+          • 📌 *[next_action]* — [task name]
           _Due: [date]. [1-2 sentences with reasoning.]_
 
           _📊 See thread for detailed activity (Jira & Confluence) →_
 
+          ICONS:
+          - 🚩 = P0 Critical (red flag)
+          - 📌 = P1 Important (pushpin)
+          
           RULES:
           - Focus on next_action fields, not just task titles
           - Blocked tasks go ONLY in Tracking section, NOT in focus recommendations
+          - "Blocked by:" goes on its own line under the task name (like "Due:" format)
           - Skip empty sections entirely
-          - "Actions Due Today" = next_action_due is TODAY or past (overdue)
-          - "Actions Due This Week" = next_action_due within next 7 days, NOT today
           - Recommendations should be max 2-3 items, based on earliest due dates
           PROMPT_END
           
