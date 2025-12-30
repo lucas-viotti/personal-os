@@ -831,14 +831,32 @@ TASK DETAILS:
 def find_recent_logbook_message(config: Dict[str, str]) -> Optional[Dict]:
     """Find the most recent Logbook message in the DM channel."""
     token = config.get("SLACK_BOT_TOKEN")
-    channel = config.get("SLACK_CHANNEL_ID")
+    user_id = config.get("SLACK_CHANNEL_ID")  # This is actually the user ID
     
-    if not token or not channel:
+    if not token or not user_id:
         return None
+    
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    
+    # First, open/get the DM channel with the user
+    open_url = "https://slack.com/api/conversations.open"
+    open_payload = json.dumps({"users": user_id}).encode()
+    open_response = api_request(open_url, headers, open_payload, method="POST")
+    
+    if not open_response or not open_response.get("ok"):
+        error = open_response.get('error', 'unknown') if open_response else 'no response'
+        print(f"  ⚠️ Could not open DM: {error}")
+        return None
+    
+    channel = open_response.get("channel", {}).get("id")
+    if not channel:
+        print("  ⚠️ Could not get DM channel ID")
+        return None
+    
+    print(f"  Found DM channel: {channel}")
     
     # Get recent messages from the DM
     url = f"https://slack.com/api/conversations.history?channel={channel}&limit=20"
-    headers = {"Authorization": f"Bearer {token}"}
     
     response = api_request(url, headers)
     
@@ -854,15 +872,21 @@ def find_recent_logbook_message(config: Dict[str, str]) -> Optional[Dict]:
         return None
     
     # Find a recent Logbook message (posted by bot)
-    for msg in response.get("messages", []):
-        # Check if it's from our bot and looks like a Logbook report
-        if msg.get("bot_id") or "P0 Tasks" in msg.get("text", "") or "Daily" in msg.get("text", ""):
+    messages = response.get("messages", [])
+    print(f"  Found {len(messages)} messages in DM history")
+    
+    for msg in messages:
+        text = msg.get("text", "")
+        # Check if it looks like a Logbook report
+        if "P0 Tasks" in text or "P1 Tasks" in text or "Daily Briefing" in text or "Daily Closing" in text:
+            print(f"  ✅ Found Logbook message!")
             return {
                 "ts": msg.get("ts"),
-                "text": msg.get("text", "")[:200],
+                "text": text[:200],
                 "channel": channel
             }
     
+    print("  ⚠️ No recent Logbook message found in DM")
     return None
 
 
