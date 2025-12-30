@@ -396,21 +396,15 @@ jobs:
           *☀️ Daily Briefing — [TODAY's DATE]*
 
           *🎯 Actions Due Today*
-          [If ACTIONS_DUE_TODAY is not empty, list them here with their parent task]
+          [List actions with next_action_due = TODAY or OVERDUE, with their parent task]
           • [next_action] — _[task name]_
-          [If empty, skip this section entirely]
+          [If none due today, write: "_No actions due today._"]
 
-          *🚨 P0 Tasks (Do Today)*
-          *🔴 Not started*
-          • [task name - truncate if over 50 chars]
-          *🟡 In Progress*
-          • [task name]
-
-          *⚡ P1 Tasks (This Week)*
-          *🔴 Not started*
-          • [task name]
-          *🟡 In Progress*
-          • [task name]
+          *📅 Actions Due This Week*
+          [List actions with next_action_due within the next 7 days, grouped by priority]
+          • 🔴 [P0 action] — _[task name]_ (due [date])
+          • 🟡 [P1 action] — _[task name]_ (due [date])
+          [If none, skip this section]
 
           *⏳ Tracking (Blocked)*
           • [task name] — _blocked by: [who/what]_
@@ -419,13 +413,13 @@ jobs:
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *💡 AI Focus Recommendation*
-          Based on next_action_due dates, prioritization rules, and recent activity:
+          Based on your deadlines, priorities, and recent activity:
 
           • 🔴 *[next_action]* — [task name]
-          _Due: [next_action_due]. [1-2 sentences explaining why this is prioritized. Reference deadline, blocking others, or goal alignment.]_
+          _Due: [date]. [1-2 sentences explaining why this is prioritized. Reference deadline, blocking others, or goal alignment.]_
 
           • 🟡 *[next_action]* — [task name]
-          _Due: [next_action_due]. [1-2 sentences with reasoning.]_
+          _Due: [date]. [1-2 sentences with reasoning.]_
 
           _📊 See thread for detailed activity (Jira & Confluence) →_
 
@@ -433,7 +427,9 @@ jobs:
           - Focus on next_action fields, not just task titles
           - Blocked tasks go ONLY in Tracking section, NOT in focus recommendations
           - Skip empty sections entirely
-          - Recommendations should be based on earliest next_action_due dates first
+          - "Actions Due Today" = next_action_due is TODAY or past (overdue)
+          - "Actions Due This Week" = next_action_due within next 7 days, NOT today
+          - Recommendations should be max 2-3 items, based on earliest due dates
           PROMPT_END
           
           TODAY=$(date +'%A, %B %d, %Y')
