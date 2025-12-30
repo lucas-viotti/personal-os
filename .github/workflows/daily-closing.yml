@@ -389,27 +389,25 @@ jobs:
           *📊 Daily Closing — [TODAY's DATE]*
 
           *✅ Completed Today*
-          • *[Task/Card name]*: [one-line summary of what was done]
+          • *[Task name]*: [one-line summary]
           If nothing completed: "_No completions recorded_"
 
           *📈 Progress Made*
-          • 🚩 *[P0 task]*: [specific progress]
-          • 📌 *[P1 task]*: [specific progress]
-          Only list tasks with ACTUAL evidence of progress. Skip if none.
+          • 🚩 *[P0]*: [specific progress]
+          • 📌 *[P1]*: [specific progress]
+          Only list tasks with ACTUAL evidence. Skip section if none.
 
           *🔄 Status Changes*
-          List any tasks that changed status (started, blocked, etc):
-          • *[Task name]*: [old status] → [new status]
-              _Reason:_ [why it changed, if known]
+          • *[Task name]*: [old] → [new]
+            *Reason*: [why]
+          Skip section if no status changes.
 
           *💡 Suggested Updates*
-          For tasks needing attention:
-          • 🔴 *[Incomplete P0]*: _Reschedule or mark blocked_
-          • 🟡 *[Task with Jira activity]*: _Log <URL|KEY> update to task file_
+          • 🚩 *[P0]*: _[action needed]_
+          • 📌 *[P1]*: _[action needed]_
+          Skip section if no suggestions.
 
-          Keep suggestions actionable and brief.
-
-          _See thread for details →_
+          _See thread for Jira sync →_
           PROMPT_END
           
           TODAY=$(date +'%A, %B %d, %Y')

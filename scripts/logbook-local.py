@@ -788,7 +788,7 @@ def generate_daily_closing(config: Dict[str, str]) -> tuple:
     git_changes = fetch_git_changes(config, days=1)
     tasks = read_tasks(config)
     
-    # AI Prompt - Clean Daily Closing format (matches Daily Briefing style)
+    # AI Prompt - Clean Daily Closing format
     prompt = f"""Generate a concise Slack end-of-day report.
 
 RULES:
@@ -802,27 +802,25 @@ OUTPUT FORMAT:
 *📊 Daily Closing — [TODAY's DATE]*
 
 *✅ Completed Today*
-• *[Task/Card name]*: [one-line summary of what was done]
+• *[Task name]*: [one-line summary]
 If nothing completed: "_No completions recorded_"
 
 *📈 Progress Made*
-• 🚩 *[P0 task]*: [specific progress]
-• 📌 *[P1 task]*: [specific progress]
-Only list tasks with ACTUAL evidence of progress. Skip if none.
+• 🚩 *[P0]*: [specific progress]
+• 📌 *[P1]*: [specific progress]
+Only list tasks with ACTUAL evidence. Skip section if none.
 
 *🔄 Status Changes*
-List any tasks that changed status (started, blocked, etc):
-• *[Task name]*: [old status] → [new status]
-    _Reason:_ [why it changed, if known]
+• *[Task name]*: [old] → [new]
+  *Reason*: [why]
+Skip section if no status changes.
 
 *💡 Suggested Updates*
-For tasks needing attention:
-• 🔴 *[Incomplete P0]*: _Reschedule or mark blocked_
-• 🟡 *[Task with Jira activity]*: _Log <URL|KEY> update to task file_
+• 🚩 *[P0]*: _[action needed]_
+• 📌 *[P1]*: _[action needed]_
+Skip section if no suggestions.
 
-Keep suggestions actionable and brief.
-
-_See thread for details →_
+_See thread for Jira sync →_
 
 TODAY: {datetime.now().strftime('%A, %B %d, %Y')}
 
@@ -861,12 +859,30 @@ CONFLUENCE ({confluence['count']}):
     if suggestions:
         save_pending_jira_updates(suggestions)
         thread += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        thread += f"*🔄 Jira Sync Suggestions ({len(suggestions)} cards)*\n"
-        for s in suggestions[:5]:  # Limit to 5 in thread
-            thread += f"• <{s['jira_url']}|{s['jira_key']}>: {len(s['updates'])} update(s)\n"
-        if len(suggestions) > 5:
-            thread += f"_...and {len(suggestions) - 5} more_\n"
-        thread += "\n_Run `python3 scripts/logbook-local.py jira-sync` to review and post_"
+        thread += f"*🔄 Jira Sync — {len(suggestions)} cards need updates*\n\n"
+        
+        # Show first 3 suggestions with full detail
+        for i, s in enumerate(suggestions[:3]):
+            thread += f"*<{s['jira_url']}|{s['jira_key']}>*: {s['jira_title'][:40]}\n"
+            for update in s['updates'][:2]:
+                if update['type'] == 'comment':
+                    preview = update['content'][:80].replace('\n', ' ')
+                    thread += f"  📝 Comment: _{preview}..._\n"
+                elif update['type'] == 'due_date':
+                    thread += f"  📅 Due: {update.get('current', '?')} → {update.get('suggested', '?')}\n"
+                elif update['type'] == 'transition':
+                    thread += f"  🔄 Status: → {update.get('suggested', '?')}\n"
+            thread += "\n"
+        
+        if len(suggestions) > 3:
+            thread += f"_...and {len(suggestions) - 3} more cards_\n\n"
+        
+        thread += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        thread += "*To review & post:*\n"
+        thread += "`python3 scripts/logbook-local.py jira-sync`\n"
+        thread += "• `[A]pprove` → Post to Jira\n"
+        thread += "• `[E]dit` → Modify first\n"
+        thread += "• `[S]kip` → Ignore\n"
     
     return main_report, thread
 
