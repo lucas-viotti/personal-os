@@ -64,7 +64,7 @@ jobs:
             echo "changed_count=0" >> $GITHUB_OUTPUT
           fi
 
-      - name: Fetch Jira Activity
+      - name: Fetch Jira Activity with Changes
         id: jira
         continue-on-error: true
         env:
@@ -79,21 +79,21 @@ jobs:
             exit 0
           fi
           
-          echo "Fetching today's Jira activity from $ATLASSIAN_DOMAIN..."
+          echo "Fetching today's Jira activity with changelog from $ATLASSIAN_DOMAIN..."
           
-          # Use new Jira API endpoint (POST /rest/api/3/search/jql)
-          # Filter to issues where user is assignee, reporter, or watcher (mentioned)
+          # Filter to issues where user is assignee, reporter, or watcher
           JQL="project = ${JIRA_PROJECT} AND (assignee = \"${ATLASSIAN_EMAIL}\" OR reporter = \"${ATLASSIAN_EMAIL}\" OR watcher = \"${ATLASSIAN_EMAIL}\") AND updated >= startOfDay() ORDER BY updated DESC"
           
           echo "JQL: $JQL"
           
-          # Create JSON payload for POST request
+          # Get issues with changelog and comments expanded
           JSON_PAYLOAD=$(jq -n \
             --arg jql "$JQL" \
             '{
               "jql": $jql,
-              "maxResults": 30,
-              "fields": ["key", "summary", "status", "assignee", "updated"]
+              "maxResults": 20,
+              "fields": ["key", "summary", "status", "description", "comment"],
+              "expand": ["changelog"]
             }')
           
           JIRA_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" \
@@ -117,31 +117,70 @@ jobs:
             exit 0
           fi
           
-          JIRA_COUNT=$(echo "$RESPONSE_BODY" | jq -r '.issues | length' 2>/dev/null || echo "0")
+          # Parse each issue to extract ACTUAL changes (changelog, comments)
+          # Only include issues with real changes, not just timestamp updates
           
-          # Get issue list for AI to summarize (key, summary, status)
-          JIRA_RAW=$(echo "$RESPONSE_BODY" | jq -r '.issues[]? | "\(.key): \(.fields.summary) [\(.fields.status.name)]"' 2>/dev/null || echo "")
+          TODAY_START=$(date -u +%Y-%m-%dT00:00:00)
           
-          # Create formatted version with Slack hyperlinks for thread
-          JIRA_LINKED=$(echo "$RESPONSE_BODY" | jq -r --arg domain "$ATLASSIAN_DOMAIN" \
-            '.issues[]? | "• <https://\($domain)/browse/\(.key)|\(.key)>: \(.fields.summary | if length > 60 then .[:57] + "..." else . end) [\(.fields.status.name)]"' 2>/dev/null || echo "")
+          JIRA_DETAILED=""
+          JIRA_LINKED=""
+          ACTUAL_COUNT=0
           
-          echo "Found $JIRA_COUNT issues"
+          # Process each issue and extract today's changes
+          for row in $(echo "$RESPONSE_BODY" | jq -r '.issues[] | @base64'); do
+            ISSUE=$(echo "$row" | base64 -d)
+            KEY=$(echo "$ISSUE" | jq -r '.key')
+            SUMMARY=$(echo "$ISSUE" | jq -r '.fields.summary')
+            STATUS=$(echo "$ISSUE" | jq -r '.fields.status.name')
+            
+            # Get today's changelog entries
+            CHANGES=$(echo "$ISSUE" | jq -r --arg today "$TODAY_START" '
+              .changelog.histories[]? | 
+              select(.created >= $today) |
+              .items[] | 
+              "- \(.field): \(.fromString // "empty") → \(.toString // "empty")"
+            ' 2>/dev/null | head -5)
+            
+            # Get today's comments
+            COMMENTS=$(echo "$ISSUE" | jq -r --arg today "$TODAY_START" '
+              .fields.comment.comments[]? |
+              select(.created >= $today) |
+              "- Comment: \(.body.content[0].content[0].text // "comment added" | .[0:100])"
+            ' 2>/dev/null | head -3)
+            
+            # Only include if there were actual changes or comments
+            if [ -n "$CHANGES" ] || [ -n "$COMMENTS" ]; then
+              ACTUAL_COUNT=$((ACTUAL_COUNT + 1))
+              
+              DETAIL="<https://${ATLASSIAN_DOMAIN}/browse/${KEY}|${KEY}> - ${SUMMARY}\n"
+              if [ -n "$CHANGES" ]; then
+                DETAIL+="${CHANGES}\n"
+              fi
+              if [ -n "$COMMENTS" ]; then
+                DETAIL+="${COMMENTS}\n"
+              fi
+              
+              JIRA_DETAILED+="${DETAIL}\n"
+              JIRA_LINKED+="• <https://${ATLASSIAN_DOMAIN}/browse/${KEY}|${KEY}>: ${SUMMARY:0:50} [${STATUS}]\n"
+            fi
+          done
           
-          if [ -z "$JIRA_RAW" ] || [ "$JIRA_COUNT" = "0" ]; then
-            JIRA_RAW="_No Jira activity today_"
-            JIRA_LINKED="_No Jira activity today_"
+          echo "Found $ACTUAL_COUNT issues with actual changes"
+          
+          if [ -z "$JIRA_DETAILED" ] || [ "$ACTUAL_COUNT" = "0" ]; then
+            JIRA_DETAILED="_No actual Jira changes today (only timestamp updates)_"
+            JIRA_LINKED="_No Jira changes today_"
           fi
           
           echo "jira_raw<<EOF" >> $GITHUB_OUTPUT
-          echo "$JIRA_RAW" >> $GITHUB_OUTPUT
+          echo -e "$JIRA_DETAILED" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           
           echo "jira_linked<<EOF" >> $GITHUB_OUTPUT
-          echo "$JIRA_LINKED" >> $GITHUB_OUTPUT
+          echo -e "$JIRA_LINKED" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           
-          echo "jira_count=$JIRA_COUNT" >> $GITHUB_OUTPUT
+          echo "jira_count=$ACTUAL_COUNT" >> $GITHUB_OUTPUT
 
       - name: Fetch Confluence Activity
         id: confluence
@@ -304,40 +343,44 @@ jobs:
           CRITICAL RULES:
           1. Output must be UNDER 2500 characters total
           2. Use Slack mrkdwn: *bold*, _italic_, • for bullets
-          3. ONLY report items with ACTUAL changes - skip anything with no updates
-          4. NEVER invent progress - only report what's in the data
+          3. ONLY report items with ACTUAL changes in the data - NEVER invent or assume
+          4. If no changes, say so honestly - don't make up progress
+          5. Be SPECIFIC - say exactly what changed, not vague summaries
 
           Generate this EXACT structure:
 
           *📊 Daily Closing — [TODAY's DATE]*
 
           *📈 Today's Progress*
-          ONLY list items that had ACTUAL changes. Skip files with no changes entirely.
-          • 📝 *[filename]*: [describe what was added/changed based on git diff]
-          • 📋 *[Jira ticket]*: [what changed - status, comments, etc]
+          ONLY list items from the data that had ACTUAL changes:
+          • 📝 *[filename]*: [quote the specific change from git diff]
+          • 📋 *<Jira URL|ticket> - [card name]*: [exact change from changelog - e.g., "Status: Backlog → In Progress" or "Comment added: 'approved by stakeholder'"]
           • 📄 *[Confluence page]*: [what was edited]
-          If NOTHING changed anywhere, write: "_No activity recorded today._"
+          
+          SKIP any item without real changes. If nothing changed, write: "_No recorded changes today._"
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *📋 Task Status*
-          Write in PROSE format (not bullet points):
-          *🚨 P0 Tasks (Do Today)*: [1-2 sentences describing P0 task status and whether progress was made or it remains incomplete]
-          *⚡ P1 Tasks (This Week)*: [1-2 sentences describing P1 progress - which tasks moved forward, which are in review, etc]
+          ONLY write about tasks that appear in Today's Progress or have suggested updates.
+          *🚨 P0 Tasks (Do Today)*: [If no P0 changes recorded, say "No progress recorded - task remains incomplete"]
+          *⚡ P1 Tasks (This Week)*: [Only mention tasks with actual evidence. Quote the specific change.]
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *💡 Suggested Task Updates*
-          THIS IS THE MOST IMPORTANT SECTION.
+          Based on the ACTUAL changes above, suggest what to log:
 
-          For P0 tasks with NO activity:
-          • 🔴 *[Task name]*: _OVERDUE - no work recorded. Reschedule to [date] or mark blocked._
+          For P0 tasks with NO activity in the data:
+          • 🔴 *[Task name]*: _No work recorded today. Reschedule to [date] or mark blocked._
 
-          For tasks with Jira activity - BE SPECIFIC about what happened:
-          • 🟡 *[Task name]*: _<JIRA_URL|[ticket]> was updated: [specific change - e.g., "status changed to In Review", "new comment added about X"]. Update task file to reflect this progress._
+          For tasks with Jira changes - use the EXACT change from data:
+          • 🟡 *[Task name]*: _<URL|ticket>: [exact changelog entry]. Log this in the task file._
 
           For tasks with file changes:
-          • 🟡 *[Task name]*: _Progress log updated with [summary of change]. Consider updating status if appropriate._
+          • 🟡 *[Task name]*: _File updated: "[quote diff]". Consider changing status._
+
+          DO NOT suggest updates for tasks without evidence in the data.
 
           _📊 See thread for detailed activity (Jira & Confluence) →_
           PROMPT_END
