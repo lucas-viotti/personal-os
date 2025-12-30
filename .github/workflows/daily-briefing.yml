@@ -207,13 +207,13 @@ jobs:
             BLOCKED_BY=$(grep "^blocked_by:" "$file" | sed 's/blocked_by: //' | head -1)
             BLOCKED_EXPECTED=$(grep "^blocked_expected:" "$file" | sed 's/blocked_expected: //' | head -1)
             if [ -n "$BLOCKED_BY" ]; then
-              BLOCKED_TASKS="${BLOCKED_TASKS}• ${TITLE} — _blocked by: ${BLOCKED_BY}_"
+              BLOCKED_TASKS="${BLOCKED_TASKS}• *${TITLE}*\n*Blocked by*: ${BLOCKED_BY}"
               if [ -n "$BLOCKED_EXPECTED" ]; then
                 BLOCKED_TASKS="${BLOCKED_TASKS} (check ${BLOCKED_EXPECTED})"
               fi
-              BLOCKED_TASKS="${BLOCKED_TASKS}\n"
+              BLOCKED_TASKS="${BLOCKED_TASKS}\n\n"
             else
-              BLOCKED_TASKS="${BLOCKED_TASKS}• ${TITLE}\n"
+              BLOCKED_TASKS="${BLOCKED_TASKS}• *${TITLE}*\n"
             fi
           done
           
@@ -257,9 +257,9 @@ jobs:
             # Track actions due today or overdue
             if [ -n "$NEXT_ACTION_DUE" ] && [ "$STATUS" != "b" ]; then
               if [ "$NEXT_ACTION_DUE" \<= "$TODAY" ]; then
-                ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• 🚩 ${NEXT_ACTION} — _${TITLE}_\n"
+                ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• 🚩 [P0] ${NEXT_ACTION} — _${TITLE}_\n"
               elif [ "$NEXT_ACTION_DUE" \<= "$WEEK_END" ]; then
-                ACTIONS_DUE_WEEK="${ACTIONS_DUE_WEEK}• 🚩 ${NEXT_ACTION} — _${TITLE}_ (due ${NEXT_ACTION_DUE})\n"
+                ACTIONS_DUE_WEEK="${ACTIONS_DUE_WEEK}• 🚩 [P0] ${NEXT_ACTION} — _${TITLE}_ (due ${NEXT_ACTION_DUE})\n"
               fi
             fi
           done
@@ -292,9 +292,9 @@ jobs:
             # Track actions due today or overdue
             if [ -n "$NEXT_ACTION_DUE" ] && [ "$STATUS" != "b" ]; then
               if [ "$NEXT_ACTION_DUE" \<= "$TODAY" ]; then
-                ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• 📌 ${NEXT_ACTION} — _${TITLE}_\n"
+                ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• 📌 [P1] ${NEXT_ACTION} — _${TITLE}_\n"
               elif [ "$NEXT_ACTION_DUE" \<= "$WEEK_END" ]; then
-                ACTIONS_DUE_WEEK="${ACTIONS_DUE_WEEK}• 📌 ${NEXT_ACTION} — _${TITLE}_ (due ${NEXT_ACTION_DUE})\n"
+                ACTIONS_DUE_WEEK="${ACTIONS_DUE_WEEK}• 📌 [P1] ${NEXT_ACTION} — _${TITLE}_ (due ${NEXT_ACTION_DUE})\n"
               fi
             fi
           done
@@ -448,19 +448,19 @@ jobs:
 
           *🎯 Actions Due Today*
           [List actions with next_action_due = TODAY or OVERDUE]
-          • 🚩 [next_action] — _[task name]_ (for P0 critical tasks)
-          • 📌 [next_action] — _[task name]_ (for P1 important tasks)
+          • 🚩 [P0] [next_action] — _[task name]_
+          • 📌 [P1] [next_action] — _[task name]_
           [If none due today, write: "_No actions due today._"]
 
           *📅 Actions Due This Week*
           [List actions with next_action_due within next 7 days, NOT today]
-          • 🚩 [next_action] — _[task name]_ (due [date])
-          • 📌 [next_action] — _[task name]_ (due [date])
+          • 🚩 [P0] [next_action] — _[task name]_ (due [date])
+          • 📌 [P1] [next_action] — _[task name]_ (due [date])
           [If none, skip this section]
 
-          *🚫 Tracking (Blocked)*
-          • [task name]
-          _Blocked by: [who/what]_
+          🚫 *Blocked*
+          • *[task name]*
+          *Blocked by*: [who/what]
           [If no blocked tasks, skip this section]
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -477,13 +477,12 @@ jobs:
           _📊 See thread for detailed activity (Jira & Confluence) →_
 
           ICONS:
-          - 🚩 = P0 Critical (red flag)
-          - 📌 = P1 Important (pushpin)
+          - 🚩 [P0] = Critical (red flag)
+          - 📌 [P1] = Important (pushpin)
           
           RULES:
           - Focus on next_action fields, not just task titles
-          - Blocked tasks go ONLY in Tracking section, NOT in focus recommendations
-          - "Blocked by:" goes on its own line under the task name (like "Due:" format)
+          - Blocked tasks: bold task name, then "*Blocked by*:" on new line
           - Skip empty sections entirely
           - Recommendations should be max 2-3 items, based on earliest due dates
           PROMPT_END
