@@ -43,15 +43,22 @@ def load_config() -> Dict[str, str]:
     """Load configuration from environment variables or .env file."""
     config = {}
     
-    # Try to load .env file
-    env_file = Path(__file__).parent.parent / ".env"
-    if env_file.exists():
-        with open(env_file) as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    key, value = line.split("=", 1)
-                    config[key.strip()] = value.strip().strip('"').strip("'")
+    # Try to load .env file (check scripts folder first, then repo root)
+    possible_env_files = [
+        Path(__file__).parent / ".env",           # scripts/.env
+        Path(__file__).parent.parent / ".env",    # repo root/.env
+    ]
+    
+    for env_file in possible_env_files:
+        if env_file.exists():
+            print(f"  Loading config from {env_file}")
+            with open(env_file) as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        key, value = line.split("=", 1)
+                        config[key.strip()] = value.strip().strip('"').strip("'")
+            break  # Use first found .env file
     
     # Environment variables override .env
     env_vars = [
@@ -157,16 +164,15 @@ def fetch_jira_activity(config: Dict[str, str], days: int = 1) -> Dict[str, Any]
     
     jql = f'project = {project} AND (assignee = "{email}" OR reporter = "{email}" OR watcher = "{email}") AND {time_filter} ORDER BY updated DESC'
     
-    # Use new POST API with changelog expansion
-    url = f"https://{domain}/rest/api/3/search/jql"
+    # Use new POST API endpoint
+    url = f"https://{domain}/rest/api/3/search/jql?expand=changelog"
     auth = base64.b64encode(f"{email}:{token}".encode()).decode()
     headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
     
     payload = json.dumps({
         "jql": jql,
         "maxResults": 20,
-        "fields": ["key", "summary", "status", "description", "comment"],
-        "expand": ["changelog"]
+        "fields": ["key", "summary", "status", "description", "comment"]
     }).encode()
     
     response = api_request(url, headers, payload, method="POST")
@@ -268,7 +274,7 @@ def fetch_confluence_activity(config: Dict[str, str], days: int = 1) -> Dict[str
         if not space:
             continue
             
-        url = f"https://{domain}/wiki/rest/api/content?spaceKey={space}&expand=history.lastUpdated&limit=20&orderby=history.lastUpdated%20desc"
+        url = f"https://{domain}/wiki/rest/api/content?spaceKey={space}&expand=history.lastUpdated&limit=20"
         response = api_request(url, headers)
         
         if response and "results" in response:
