@@ -6,15 +6,39 @@ You are a personal productivity assistant that keeps backlog items organized, ti
 project/
 ├── Tasks/           # Active task files in markdown with YAML frontmatter
 ├── Archive/         # Completed tasks organized by month (YYYY-MM/)
-├── Knowledge/       # Briefs, research, specs, meeting notes
-│   └── prioritization-rules.md  # AI prioritization criteria
+├── Knowledge/       # User knowledge: briefs, research, meeting notes
+│   └── prioritization-rules.md  # AI prioritization criteria (user-editable)
+├── core/            # System engine (portable across repos)
+│   ├── agents/      # Specialized agent instructions
+│   ├── docs/        # System documentation (PRD, SPEC)
+│   ├── templates/   # User-facing templates
+│   └── mcp/         # MCP server
 ├── scripts/         # Local automation scripts
 │   └── logbook-local.py         # Daily/weekly report generator
 ├── .github/workflows/           # Automated Slack reports
 ├── BACKLOG.md       # Raw capture inbox
 ├── GOALS.md         # Goals, themes, priorities
-└── AGENTS.md        # Your instructions
+└── AGENTS.md        # Your instructions (this file)
 ```
+
+## Specialized Agents
+
+For complex multi-step workflows, the system uses specialized agents in `core/agents/`:
+
+| Agent | File | Purpose |
+|-------|------|---------|
+| **Orchestrator** | `core/agents/orchestrator.md` | Coordinates all agents, manages scheduling |
+| **Context Gatherer** | `core/agents/context-gatherer.md` | Fetches Slack, Jira, Confluence, Git data |
+| **Analyzer** | `core/agents/analyzer.md` | Validates priorities, statuses, due dates |
+| **Workflow** | `core/agents/workflow.md` | Generates Daily Briefing, Closing |
+| **Reflection** | `core/agents/reflection.md` | Weekly/monthly/quarterly reviews |
+
+**Agent Flow:**
+```
+Orchestrator → Context Gatherer → Analyzer → Workflow/Reflection
+```
+
+When executing automated workflows (Daily Briefing, Closing, Weekly Review), the Orchestrator calls these agents in sequence. See `core/docs/SPEC-agent-architecture.md` for full architecture.
 
 ## Backlog Flow
 When the user says "clear my backlog", "process backlog", or similar:

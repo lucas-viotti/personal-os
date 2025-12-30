@@ -1,194 +1,152 @@
-# Task Management System with MCP Server
+# Personal OS - Core System
 
-A reusable task management system for AI assistants (Claude, GPT, etc.) with intelligent deduplication and organization.
+The portable engine of Personal OS. This folder contains system components that can be shared across repos.
 
-## Core Features
+## Folder Structure
 
-- **Smart Backlog Processing**: Automatically detects duplicates and ambiguous items
-- **Task Organization**: Categories, priorities, and status tracking
-- **CRM Integration**: Manage contacts alongside tasks
-- **MCP Server**: Reliable tool interface for AI assistants
-- **Configurable**: Customize categories, priorities, and workflows
+```
+core/
+├── agents/           # Specialized agent instructions (Phase 3)
+│   ├── README.md     # Agent overview and architecture
+│   ├── orchestrator.md      # Planned
+│   ├── context-gatherer.md  # Planned
+│   ├── analyzer.md          # Planned
+│   ├── workflow.md          # Planned
+│   └── reflection.md        # Planned
+│
+├── docs/             # System documentation
+│   ├── PRD.md                    # Product requirements
+│   ├── SPEC-agent-architecture.md # Multi-agent design
+│   ├── schema-v2-update-plan.md  # Schema migration plan
+│   └── implementation-plan-v2.md # Implementation roadmap
+│
+├── templates/        # User-facing templates
+│   ├── AGENTS.md     # Main AI instructions (Schema v2.0)
+│   ├── CLAUDE.md     # Claude Code instructions
+│   ├── config.yaml   # Configuration template
+│   └── gitignore     # Recommended .gitignore
+│
+├── mcp/              # MCP server for task management
+│   └── server.py     # Tool implementations
+│
+├── evals/            # Session evaluation framework
+│   └── README.md     # Eval workflow guide
+│
+└── README.md         # This file
+```
 
 ## Quick Start
 
-### 1. Setup
+### For New Users
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/task-manager.git
-cd task-manager
+1. Copy `templates/AGENTS.md` to your project root
+2. Copy `templates/config.yaml` and customize
+3. Create `Tasks/`, `Knowledge/`, `Archive/` folders
+4. Start using with your AI assistant (Cursor, Claude, etc.)
 
-# Install dependencies
-pip install pyyaml mcp
+### For Developers
 
-# Create directories
-mkdir Tasks CRM
-touch BACKLOG.md
-```
+See `docs/` for architecture and implementation details:
+- **PRD.md** — Product requirements and user stories
+- **SPEC-agent-architecture.md** — Multi-agent system design
+- **schema-v2-update-plan.md** — Task schema documentation
 
-### 2. Configure
+## Components
 
-Copy `templates/AGENTS.md` to your root and customize:
-- Categories for your workflow
-- Priority definitions
-- Personal goals (optional)
+### Templates (`templates/`)
 
-### 3. Start MCP Server
+User-facing configuration files. Copy these to your project root.
 
-```bash
-python manager_ai_mcp/server_core.py
-```
+| File | Purpose |
+|------|---------|
+| `AGENTS.md` | AI assistant instructions (Schema v2.0) |
+| `CLAUDE.md` | Claude Code specific instructions |
+| `config.yaml` | Customizable configuration |
 
-### 4. Use with AI Assistant
+**Important:** Keep `templates/AGENTS.md` in sync with root `AGENTS.md`.
 
-Tell your AI assistant:
-```
-"Read AGENTS.md for instructions on managing my tasks"
-```
+### Agents (`agents/`)
 
-## System Architecture
+Specialized AI agents for the multi-agent architecture (Phase 3 ✅):
 
-```
-task-manager/
-├── manager_ai_mcp/
-│   └── server_core.py      # MCP server with deduplication
-├── Tasks/                  # Individual task files
-├── CRM/                    # Contact files
-├── BACKLOG.md             # Unstructured notes
-├── AGENTS.md              # AI instructions (from template)
-└── config.yaml            # Optional configuration
-```
+| Agent | File | Purpose |
+|-------|------|---------|
+| Orchestrator | `orchestrator.md` | Coordinates scheduling and routing |
+| Context Gatherer | `context-gatherer.md` | Fetches Slack, Jira, Confluence, Git data |
+| Analyzer | `analyzer.md` | Validates priorities, statuses, due dates |
+| Workflow | `workflow.md` | Daily Briefing, Closing, Status checks |
+| Reflection | `reflection.md` | Weekly/quarterly retrospectives |
 
-## Task Format
+See `agents/README.md` for architecture details and data flow diagrams.
 
-Tasks are markdown files with YAML frontmatter:
+### Documentation (`docs/`)
+
+System documentation (not user knowledge):
+
+| Doc | Purpose |
+|-----|---------|
+| PRD.md | Product requirements, user stories, success metrics |
+| SPEC-agent-architecture.md | Multi-agent system design |
+| schema-v2-update-plan.md | Schema v2.0 migration details |
+| implementation-plan-v2.md | Phased implementation roadmap |
+
+### MCP Server (`mcp/`)
+
+Model Context Protocol server providing tools for AI assistants:
+
+- `list_tasks` — Filter and view tasks
+- `create_task` — Create with auto-categorization
+- `update_task_status` — Change task status
+- `process_backlog_with_dedup` — Smart backlog processing
+
+### Evaluations (`evals/`)
+
+Session evaluation framework for improving AI workflows:
+
+1. Capture Claude Code sessions
+2. Generate evaluation files
+3. Review and annotate
+4. Apply improvements to AGENTS.md
+
+See `evals/README.md` for workflow details.
+
+## Schema v2.0
+
+Current task schema includes:
 
 ```yaml
 ---
-title: Clear task description
-category: technical
-priority: P1
-status: n
-estimated_time: 60
+title: [Task name]
+category: [technical|outreach|research|writing|admin|personal|other]
+priority: [P0|P1|P2|P3]
+status: [n|s|b|d]  # not_started | started | blocked | done
+
+# Blocking (when status: b)
+blocked_type: [external|dependency|decision]
+blocked_by: [Who/what is blocking]
+blocked_expected: [YYYY-MM-DD]
+
+# Dates
+created_date: [YYYY-MM-DD]
+due_date: [YYYY-MM-DD]
+
+# Focus (when status: s with subtasks)
+next_action: [Single action with earliest due date]
+next_action_due: [YYYY-MM-DD]
 ---
-
-# Task Details
-
-## Overview
-What needs to be done and why.
-
-## Next Actions
-- [ ] Step 1
-- [ ] Step 2
 ```
 
-## MCP Tools Available
+See `docs/schema-v2-update-plan.md` for full documentation.
 
-| Tool | Description |
-|------|-------------|
-| `list_tasks` | Filter and view tasks |
-| `create_task` | Create new task with metadata |
-| `update_task_status` | Change task status |
-| `process_backlog_with_dedup` | Smart backlog processing |
-| `get_task_summary` | Statistics and overview |
-| `prune_completed_tasks` | Clean old completed tasks |
+## Implementation Phases
 
-## Configuration
-
-Create `config.yaml` to customize:
-
-```yaml
-categories:
-  - development
-  - marketing
-  - operations
-  - research
-
-priorities:
-  - P0  # Critical
-  - P1  # Important
-  - P2  # Normal
-  - P3  # Low
-
-deduplication:
-  similarity_threshold: 0.6
-  check_keywords: true
-
-priority_limits:
-  P0: 3
-  P1: 5
-```
-
-## Deduplication Features
-
-The system automatically:
-- Detects similar tasks using fuzzy matching
-- Identifies ambiguous items that need clarification
-- Suggests appropriate categories
-- Prevents duplicate task creation
-
-## Best Practices
-
-1. **Process backlog regularly** - Weekly is recommended
-2. **Keep tasks specific** - Ambiguous tasks get flagged
-3. **Monitor priority balance** - Don't overload P0/P1
-4. **Prune completed tasks** - Auto-cleanup after 30 days
-5. **Link related items** - Connect tasks to CRM contacts
-
-## Customization
-
-The system is designed to be extended:
-
-- **Categories**: Add your own in config.yaml
-- **Priorities**: Define what's urgent for you
-- **Workflows**: Modify AGENTS.md instructions
-- **Integrations**: Extend MCP server with new tools
-
-## Example Workflow
-
-```bash
-# 1. Add items to backlog
-echo "- Email John about project\n- Fix login bug\n- Research competitors" >> BACKLOG.md
-
-# 2. Tell AI to process
-"Process my backlog"
-
-# 3. AI responds:
-"Found 3 items:
-- 1 potential duplicate: 'Fix login bug' matches existing 'Fix authentication issue'
-- 1 needs clarification: 'Research competitors' - what specific questions?
-- 1 ready to create: 'Email John about project'"
-
-# 4. Resolve and create tasks
-"Skip the duplicate, create the email task, I'll clarify research later"
-```
-
-## Privacy & Sharing
-
-The core system (this repo) contains:
-- Generic MCP server code
-- Template configurations
-- Example structures
-
-Your personal data stays local:
-- Tasks/
-- CRM/
-- BACKLOG.md
-- Personal AGENTS.md
-
-## Contributing
-
-Contributions welcome! The goal is a reusable system that works for different workflows:
-- Additional category templates
-- New MCP tools
-- Improved deduplication algorithms
-- Integration examples
+| Phase | Status | Focus |
+|-------|--------|-------|
+| 1. Foundation | ✅ Complete | Task files, workflows, Slack integration |
+| 2. Schema v2.0 | ✅ Complete | next_action, blocked fields, validation |
+| 3. Multi-Agent | ✅ Complete | Specialized agents in `core/agents/` |
+| 4. Integration | 🔲 Planned | Connect agents to scripts & workflows |
 
 ## License
 
 MIT - Use freely for personal or commercial projects.
-
-## Credits
-
-Built for use with AI assistants like Claude, GPT, and others that support tool calling.
