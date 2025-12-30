@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.logbook.enrich</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string><![CDATA[
+RESULT=$(/usr/bin/osascript -e 'display dialog "Logbook was just posted to Slack!
+
+Add Slack context by asking Cursor to search your messages." with title "📓 Logbook Posted!" buttons {"Close", "Open Cursor"} default button "Open Cursor"')
+
+if [[ "$RESULT" == *"Open Cursor"* ]]; then
+    cat << 'EOF' | pbcopy
+Search my Slack messages from the last 24 hours for updates related to my tasks. Follow these steps:
+
+1. Use Slack MCP to search my recent messages and conversations
+2. Identify any updates, decisions, or discussions relevant to my current tasks
+3. Create a brief summary and save it to: REPO_PATH/scripts/.slack-context.md
+4. Run this command to post the context to my Logbook Slack thread:
+   python3 REPO_PATH/scripts/logbook-local.py post-context
+5. Delete the temporary file:
+   rm REPO_PATH/scripts/.slack-context.md
+
+Do all steps automatically without asking for confirmation.
+EOF
+    open -a "Cursor"
+fi
+]]></string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <array>
+        <!-- 2 minutes after 8:30 AM Daily Briefing -->
+        <dict>
+            <key>Hour</key>
+            <integer>8</integer>
+            <key>Minute</key>
+            <integer>32</integer>
+        </dict>
+        <!-- 2 minutes after 5:50 PM Daily Closing -->
+        <dict>
+            <key>Hour</key>
+            <integer>17</integer>
+            <key>Minute</key>
+            <integer>52</integer>
+        </dict>
+        <!-- 2 minutes after Friday 4:00 PM Weekly Review -->
+        <dict>
+            <key>Weekday</key>
+            <integer>5</integer>
+            <key>Hour</key>
+            <integer>16</integer>
+            <key>Minute</key>
+            <integer>2</integer>
+        </dict>
+    </array>
+</dict>
+</plist>
+

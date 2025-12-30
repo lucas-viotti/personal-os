@@ -1,108 +1,72 @@
 #!/bin/bash
 #
-# Setup Slack Enrichment Local Agents
+# 🔔 Setup Slack Enrichment Reminder
 #
-# This script installs launchd agents that run AFTER GitHub Actions
-# to add Slack context to the same thread.
+# This script installs a simple reminder that pops up after your
+# Daily Briefing/Closing/Weekly Review is posted to Slack.
 #
-# The enrichment script will:
-# 1. Find the most recent Logbook message
-# 2. Reply to that thread with Slack context
-# 3. Prompt for @Cursor engagement if user token not available
+# The reminder opens Cursor with a pre-copied prompt to search
+# your Slack and add context to your Logbook thread.
+#
+# NO CODING REQUIRED - Just click "Open Cursor" and paste!
 #
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_PATH="$(dirname "$SCRIPT_DIR")"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
+PLIST_NAME="com.logbook.enrich.plist"
 
-echo "🔧 Slack Enrichment Setup"
-echo "========================="
 echo ""
-echo "This will install launchd agents that run 5 minutes after each GitHub Action"
-echo "to add Slack context to the same Logbook thread."
+echo "🔔 Slack Enrichment Reminder Setup"
+echo "==================================="
 echo ""
-
-# Check for .env file
-if [ ! -f "$SCRIPT_DIR/.env" ]; then
-    echo "⚠️  No .env file found. Creating from template..."
-    if [ -f "$SCRIPT_DIR/env.example" ]; then
-        cp "$SCRIPT_DIR/env.example" "$SCRIPT_DIR/.env"
-        echo "   Created .env from env.example"
-        echo ""
-        echo "📝 Please edit $SCRIPT_DIR/.env with your credentials:"
-        echo "   - SLACK_BOT_TOKEN (same as GitHub Actions)"
-        echo "   - SLACK_CHANNEL_ID (same as GitHub Actions)"
-        echo "   - SLACK_USER_TOKEN (optional, for reading Slack)"
-        echo ""
-        read -p "Press Enter after editing .env to continue..."
-    else
-        echo "❌ No env.example found. Please create .env manually."
-        exit 1
-    fi
-fi
-
-# Source .env to validate
-source "$SCRIPT_DIR/.env" 2>/dev/null || true
-
-if [ -z "$SLACK_BOT_TOKEN" ] || [ -z "$SLACK_CHANNEL_ID" ]; then
-    echo "❌ Error: SLACK_BOT_TOKEN and SLACK_CHANNEL_ID must be set in .env"
-    exit 1
-fi
-
-echo "✅ .env file validated"
+echo "This will install a reminder that appears after your Logbook posts."
+echo "When it appears, just click 'Open Cursor' and paste the prompt!"
 echo ""
 
 # Create LaunchAgents directory if needed
 mkdir -p "$LAUNCH_AGENTS_DIR"
 
-# Install enrichment agents
-echo "📦 Installing launchd agents..."
+# Unload if already installed
+launchctl unload "$LAUNCH_AGENTS_DIR/$PLIST_NAME" 2>/dev/null || true
 
-for plist in "$SCRIPT_DIR/launchd/com.logbook.enrichment."*.plist; do
-    [ -f "$plist" ] || continue
-    
-    filename=$(basename "$plist")
-    label="${filename%.plist}"
-    
-    # Unload if already loaded
-    launchctl unload "$LAUNCH_AGENTS_DIR/$filename" 2>/dev/null || true
-    
-    # Update paths in plist
-    sed "s|SCRIPT_PATH|$SCRIPT_DIR|g" "$plist" > "$LAUNCH_AGENTS_DIR/$filename"
-    
-    echo "   ✅ Installed $label"
-done
+# Copy plist and update paths
+sed "s|REPO_PATH|$REPO_PATH|g" "$SCRIPT_DIR/launchd/$PLIST_NAME" > "$LAUNCH_AGENTS_DIR/$PLIST_NAME"
 
+echo "✅ Installed reminder"
 echo ""
 
-# Load agents
-echo "🚀 Loading agents..."
+# Load the agent
+launchctl load "$LAUNCH_AGENTS_DIR/$PLIST_NAME"
 
-for plist in "$LAUNCH_AGENTS_DIR/com.logbook.enrichment."*.plist; do
-    [ -f "$plist" ] || continue
-    
-    filename=$(basename "$plist")
-    label="${filename%.plist}"
-    
-    launchctl load "$plist"
-    echo "   ✅ Loaded $label"
-done
-
+echo "✅ Activated!"
 echo ""
-echo "✨ Setup complete!"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "📅 Enrichment schedule:"
-echo "   • Daily Briefing: 8:32 AM Mon-Fri (2 min after GitHub Action)"
-echo "   • Daily Closing:  5:52 PM Mon-Fri (2 min after GitHub Action)"
-echo "   • Weekly Review:  3:02 PM Fridays (2 min after GitHub Action)"
+echo "📅 Reminder will appear at these times:"
 echo ""
-echo "🧪 To test manually:"
-echo "   python3 $SCRIPT_DIR/slack-enrichment.py --mode briefing --dry-run"
+echo "   ☀️  8:32 AM  — After Daily Briefing (Mon-Fri)"
+echo "   🌆  5:52 PM  — After Daily Closing (Mon-Fri)"
+echo "   📋  4:02 PM  — After Weekly Review (Fridays)"
 echo ""
-echo "📋 View logs:"
-echo "   tail -f /tmp/logbook-enrichment-*.log"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "🔍 Check status:"
-echo "   launchctl list | grep logbook.enrichment"
-
+echo "🔄 When the reminder appears:"
+echo ""
+echo "   1. Click 'Open Cursor'"
+echo "   2. Press Cmd+V to paste the prompt"
+echo "   3. Cursor will search your Slack and post to your thread!"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "🧪 Test it now:"
+echo ""
+echo "   launchctl start com.logbook.enrich"
+echo ""
+echo "🔧 To uninstall:"
+echo ""
+echo "   launchctl unload ~/Library/LaunchAgents/$PLIST_NAME"
+echo "   rm ~/Library/LaunchAgents/$PLIST_NAME"
+echo ""

@@ -15,6 +15,7 @@ This is an enhanced fork of [amanaiproduct/personal-os](https://github.com/amana
 | ☀️ **Daily Briefing** | Morning focus recommendations with AI-powered suggestions |
 | 🌆 **Daily Closing** | End-of-day activity summary with smart task update suggestions |
 | 📋 **Weekly Reviews** | Comprehensive weekly digest with AI insights and reflection prompts |
+| 💬 **Slack Enrichment** | One-click Slack context added to your reports |
 | 🗂️ **Task Archiving** | Move completed tasks to organized monthly archives |
 | 🤖 **AI Integration** | Works with any OpenAI-compatible LLM API |
 | 🔗 **Atlassian Integration** | Optional Jira & Confluence activity tracking |
@@ -35,11 +36,11 @@ cd personal-os
 
 #### Slack Notifications
 1. Create a Slack App at [api.slack.com/apps](https://api.slack.com/apps)
-2. Add Bot Token Scopes: `chat:write`, `im:write`
+2. Add Bot Token Scopes: `chat:write`, `im:write`, `im:history`
 3. Install to your workspace and copy the Bot Token
 4. Add GitHub Secrets:
    - `SLACK_BOT_TOKEN`: Your bot token (starts with `xoxb-`)
-   - `SLACK_CHANNEL_ID`: Target channel/DM ID
+   - `SLACK_CHANNEL_ID`: Your Slack user ID (starts with `U`)
 
 #### AI-Powered Analysis
 Works with any LLM Provider API (OpenAI, Azure OpenAI, Anthropic via proxy, local LLMs like Ollama):
@@ -65,6 +66,48 @@ Works with any LLM Provider API (OpenAI, Azure OpenAI, Anthropic via proxy, loca
 
 ---
 
+## 💬 Slack Enrichment (NEW!)
+
+After each report posts to Slack, you can **add context from your Slack messages** with one click!
+
+### How It Works
+
+```
+8:30 AM   GitHub Action posts Daily Briefing to Slack
+          ↓
+8:32 AM   Dialog appears on your Mac:
+          ┌─────────────────────────────────────┐
+          │  📓 Logbook Posted!                 │
+          │                                     │
+          │  [ Close ]  [ Open Cursor ]         │
+          └─────────────────────────────────────┘
+          ↓
+          Click "Open Cursor" → Paste → Done!
+          ↓
+          Cursor searches your Slack and posts
+          a summary to your Logbook thread
+```
+
+### Setup (One Command)
+
+```bash
+chmod +x scripts/setup-enrichment.sh && ./scripts/setup-enrichment.sh
+```
+
+That's it! The reminder will appear automatically after each report.
+
+### What Gets Added
+
+The Slack enrichment finds relevant updates from your messages:
+- Task-related discussions
+- Action items mentioned
+- Important decisions
+- Follow-ups needed
+
+All summarized and posted as a thread reply to your Logbook message.
+
+---
+
 ## 📬 Automated Slack Reports
 
 ### ☀️ Daily Briefing (Morning)
@@ -74,20 +117,30 @@ Start your day with focus recommendations:
 ```
 ☀️ Daily Briefing — January 15, 2025
 
-📊 Today's Focus
-• 🚨 P0 (Do Today): 2
-• ⚡ P1 (This Week): 5
-• 🟠 Blocked: 1
-
 🚨 P0 Tasks (Do Today)
-• 🟡 Complete quarterly report
-• 🔴 Review PR feedback
+🔴 Not started
+• Complete quarterly report
+🟡 In Progress
+• Review PR feedback
+
+⚡ P1 Tasks (This Week)
+🔴 Not started
+• Update documentation
+🟡 In Progress
+• Sprint planning
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 💡 AI Focus Recommendation
-Based on your priorities and recent activity, focus on completing
-the quarterly report first—it's been in progress for 3 days. 
-The PR feedback review can be done in the afternoon after 
-your 2pm meeting.
+Based on prioritization rules, your current priorities 
+and recent activity, here's what to focus on:
+
+• 🔴 Complete quarterly report
+  This has a hard deadline today and is blocking the 
+  team's planning session tomorrow.
+
+• 🟡 Review PR feedback
+  Quick win - can be done between meetings.
 ```
 
 ### 🌆 Daily Closing (End of Day)
@@ -95,20 +148,23 @@ your 2pm meeting.
 Log what you accomplished:
 
 ```
-🌆 Daily Closing — January 15, 2025
+📊 Daily Closing — January 15, 2025
 
-📊 Today's Activity
-• 📋 Jira tickets: 4
-• 📝 Confluence pages: 2
+📈 Today's Progress
+• 📋 PROJ-123: Status changed Open → In Review
+• 📝 Sprint Planning doc: Added acceptance criteria
 
-📋 Jira Activity
-• PROJ-123: Updated sprint planning docs [Done]
-• PROJ-124: Fixed login bug [In Review]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 Task Status
+🚨 P0 Tasks (Do Today): Quarterly report completed!
+⚡ P1 Tasks (This Week): Sprint planning on track.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 💡 Suggested Task Updates
-1. Task "Sprint planning" — You edited the planning doc today.
-   Consider updating status from 🔴 to 🟡 in progress.
-2. Task "Bug fixes" — PROJ-124 is in review. Log progress?
+• 🟡 Task "Sprint planning" — PROJ-123 moved to review.
+  Update task status from 🔴 to 🟡.
 ```
 
 ### 📋 Weekly Review (Fridays)
@@ -116,24 +172,21 @@ Log what you accomplished:
 Reflect on your week with AI insights:
 
 ```
-📋 Weekly Review — Week of January 15, 2025
+📅 Weekly Review — Week of January 15, 2025
 
-📊 This Week's Activity
-• 📋 Jira: 12 touched, 5 resolved
+📈 This Week's Activity
+• 📋 Jira: 12 tickets touched, 5 resolved
 • 📝 Confluence: 8 pages edited
-• 📁 Task commits: 15
 
-📈 Task Overview
-• 🚨 P0 (Critical): 2
-• ⚡ P1 (This Week): 5
-• 🟠 Blocked: 1
-• ✅ Done: 3
+📋 Task Overview
+• 🚨 P0: 2 | ⚡ P1: 5 | 🟠 Blocked: 1 | ✅ Done: 3
 
-💡 AI Weekly Insights
-Great progress this week! You resolved 5 Jira tickets and made
-significant documentation updates. Consider archiving the 3 
-completed tasks. The blocked "API integration" task has been 
-stuck for 5 days—schedule time to unblock it next week.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 Weekly Reflection
+Great progress this week! You resolved 5 Jira tickets 
+and made significant documentation updates. Consider 
+archiving the 3 completed tasks.
 ```
 
 ---
@@ -146,7 +199,7 @@ Edit the cron schedules in `.github/workflows/`:
 |----------|------------------|------|
 | Daily Briefing | 8:30 AM UTC | `daily-briefing.yml` |
 | Daily Closing | 5:50 PM UTC | `daily-closing.yml` |
-| Weekly Review | Friday 3:00 PM UTC | `weekly-review.yml` |
+| Weekly Review | Friday 4:00 PM UTC | `weekly-review.yml` |
 
 ### Common Timezone Conversions
 
@@ -157,6 +210,36 @@ Edit the cron schedules in `.github/workflows/`:
 | **BRT (UTC-3)** | `30 11 * * 1-5` | `50 20 * * 1-5` |
 | **CET (UTC+1)** | `30 7 * * 1-5` | `50 16 * * 1-5` |
 | **JST (UTC+9)** | `30 23 * * 0-4` | `50 8 * * 1-5` |
+
+---
+
+## 🎯 AI Prioritization Rules
+
+The AI uses configurable prioritization rules from `Knowledge/prioritization-rules.md`:
+
+```markdown
+## Stack Ranking (Highest to Lowest Priority)
+
+### 1. 🚨 Hard Deadlines
+Tasks with explicit due dates today or overdue
+
+### 2. 🔗 Blocking Others
+Work that teammates are waiting on
+
+### 3. 🎯 Strategic Goal Alignment
+Tasks directly tied to quarterly objectives
+
+### 4. 📈 Momentum & Progress
+Continue tasks already in progress
+
+### 5. ⚠️ Risk & Dependencies
+Address blockers and dependencies
+
+### 6. 🧠 Cognitive Load Matching
+Match task complexity to energy levels
+```
+
+Edit this file to customize how the AI prioritizes your work!
 
 ---
 
@@ -187,7 +270,7 @@ Archive/
 | Secret | Required | Description |
 |--------|----------|-------------|
 | `SLACK_BOT_TOKEN` | For Slack | Bot token from Slack app |
-| `SLACK_CHANNEL_ID` | For Slack | Target channel or DM ID |
+| `SLACK_CHANNEL_ID` | For Slack | Your Slack user ID |
 | `LLM_API_KEY` | For AI | API key for LLM provider |
 | `LLM_API_URL` | Optional | Custom API endpoint (default: OpenAI) |
 | `ATLASSIAN_EMAIL` | For Jira/Confluence | Your Atlassian email |
@@ -219,9 +302,14 @@ personal-os/
 │       ├── daily-briefing.yml   # ☀️ Morning focus
 │       ├── daily-closing.yml    # 🌆 EOD summary
 │       └── weekly-review.yml    # 📋 Weekly reflection
+├── scripts/
+│   ├── logbook-local.py         # Local script alternative
+│   ├── setup-enrichment.sh      # Slack enrichment setup
+│   └── README.md                # Local scripts guide
 ├── Tasks/                       # Active tasks
 ├── Archive/                     # Completed tasks by month
-├── Knowledge/                   # Reference docs & notes
+├── Knowledge/
+│   └── prioritization-rules.md  # AI prioritization config
 ├── examples/
 │   └── workflows/               # Workflow documentation
 ├── BACKLOG.md                   # Quick capture inbox
@@ -277,7 +365,7 @@ Licensed under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4
 Contributions welcome! Please:
 - Keep personal information out of commits
 - Make features generic and configurable
-- Include documentation
+- Include documentation for non-technical users
 - Follow existing patterns
 
 ---

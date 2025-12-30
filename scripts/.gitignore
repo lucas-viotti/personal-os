@@ -1,1 +1,5 @@
+# Environment file with credentials
+.env
+
+# Temporary Slack context file
 .slack-context.md

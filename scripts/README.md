@@ -1,241 +1,230 @@
-# 🖥️ Logbook Local - Local Script Alternative
+# 🖥️ Local Scripts for PersonalOS
 
-This folder contains a **local script alternative** to the GitHub Actions workflows. Use this if you:
+This folder contains scripts that enhance your PersonalOS experience with **local automation**.
 
-- Need **full Slack access** via MCP OAuth (company restrictions on user tokens)
-- Want to run reports while connected to **VPN/internal networks**
-- Prefer keeping credentials **on your machine** instead of GitHub Secrets
-- Have a **Slack MCP** setup (company's internal MCP server with OAuth)
+---
 
-## 📊 Comparison: GitHub Actions vs Local Script
+## 🎯 Quick Start (5 minutes)
 
-| Feature | GitHub Actions | Local Script |
-|---------|---------------|--------------|
-| **Runs when laptop is off** | ✅ Yes | ❌ No |
-| **Full Slack access** | ❌ Limited | ✅ Yes (via MCP) |
-| **VPN/internal access** | ❌ No | ✅ Yes |
-| **Secret management** | GitHub Secrets | Local .env |
-| **Setup complexity** | Lower | Higher |
-| **Portfolio friendly** | ✅ Yes | ⚠️ Local only |
+### Option A: Just Want the Slack Reminder? (Easiest)
 
-## 🚀 Quick Start
-
-### 1. Configure Environment
+If you're using GitHub Actions for your reports and just want the **Slack enrichment reminder**:
 
 ```bash
-# Copy the example config
-cp scripts/env.example .env
-
-# Edit with your credentials
-nano .env  # or use your preferred editor
+# One command setup
+chmod +x scripts/setup-enrichment.sh && ./scripts/setup-enrichment.sh
 ```
 
-### 2. Test the Script
+That's it! A reminder will pop up after each report asking if you want to add Slack context.
+
+---
+
+### Option B: Full Local Setup
+
+Run everything locally instead of GitHub Actions:
+
+#### 1. Copy the environment template
 
 ```bash
-# Make setup script executable
-chmod +x scripts/setup-local.sh
-
-# Run a test
-./scripts/setup-local.sh test
+cp scripts/env.example scripts/.env
 ```
 
-### 3. Install Scheduled Jobs (macOS)
+#### 2. Fill in your credentials
+
+Open `scripts/.env` in any text editor and fill in:
 
 ```bash
-# Install launchd jobs for automatic scheduling
-./scripts/setup-local.sh install
-```
+# Required for Slack notifications
+SLACK_BOT_TOKEN=xoxb-your-token-here
+SLACK_CHANNEL_ID=U1234567890  # Your Slack user ID
 
-This creates scheduled jobs for:
-- **Daily Briefing**: 8:30 AM (Mon-Fri)
-- **Daily Closing**: 5:50 PM (Mon-Fri)  
-- **Weekly Review**: 3:00 PM (Friday)
+# Required for AI analysis
+LLM_API_KEY=your-openai-key
+LLM_API_URL=https://api.openai.com  # Or your LLM provider
 
-### 4. Manual Runs
-
-```bash
-# Run any report manually
-python3 scripts/logbook-local.py briefing
-python3 scripts/logbook-local.py closing
-python3 scripts/logbook-local.py weekly
-```
-
-## 🔐 Configuration Reference
-
-Create a `.env` file in the repo root with these variables:
-
-```bash
-# Atlassian (Jira & Confluence)
+# Optional: Jira/Confluence integration
 ATLASSIAN_DOMAIN=your-company.atlassian.net
-ATLASSIAN_EMAIL=your.email@company.com
+ATLASSIAN_EMAIL=you@company.com
 ATLASSIAN_API_TOKEN=your-token
 JIRA_PROJECT=PROJ
 CONFLUENCE_SPACES=TEAM,DOCS
-
-# LLM (OpenAI-compatible API)
-LLM_API_URL=https://api.openai.com
-LLM_API_KEY=your-key
-LLM_MODEL=gpt-4o-mini
-
-# Slack
-SLACK_BOT_TOKEN=xoxb-your-bot-token
-SLACK_CHANNEL_ID=U1234567890
-
-# Optional: For full Slack access
-SLACK_USER_TOKEN=xoxp-your-user-token
-# OR
-SLACK_MCP_TOKEN_PATH=~/.slack-mcp/token.json
 ```
 
-## 🔗 Slack MCP Integration
-
-If you have access to a Slack MCP server (your company's internal MCP with OAuth), you can leverage its token for full Slack access:
-
-### Option A: Token File Path
-
-If your MCP stores tokens in a file:
+#### 3. Install the scheduled jobs
 
 ```bash
-SLACK_MCP_TOKEN_PATH=~/dev/nu/slack-mcp-server/.token.json
+chmod +x scripts/setup-local.sh
+./scripts/setup-local.sh install
 ```
 
-### Option B: macOS Keychain
+---
 
-The script automatically checks for tokens stored in macOS Keychain under the service name `slack-mcp`.
+## 📱 Slack Enrichment: Add Context with One Click
 
-### Option C: Manual Token Extraction
-
-If you need to manually extract the token:
-
-1. Run your Slack MCP server
-2. Complete the OAuth flow
-3. Check where tokens are stored (varies by implementation)
-4. Either copy the token to `SLACK_USER_TOKEN` or set `SLACK_MCP_TOKEN_PATH`
-
-## 📁 File Structure
+After your Daily Briefing/Closing posts to Slack, a dialog appears:
 
 ```
-scripts/
-├── logbook-local.py      # Full local replacement script
-├── slack-enrichment.py   # Thread enrichment (runs after GitHub Actions)
-├── env.example           # Configuration template
-├── setup-local.sh        # Setup for full local mode
-├── setup-enrichment.sh   # Setup for GitHub Actions + local enrichment
-├── README.md             # This file
-└── launchd/              # macOS scheduler configs
-    ├── com.logbook.briefing.plist
-    ├── com.logbook.closing.plist
-    ├── com.logbook.weekly.plist
-    └── com.logbook.enrichment.*.plist  # Thread enrichment jobs
+┌─────────────────────────────────────────┐
+│  📓 Logbook Posted!                     │
+├─────────────────────────────────────────┤
+│                                         │
+│  Logbook was just posted to Slack!      │
+│                                         │
+│  Add Slack context by asking Cursor     │
+│  to search your messages.               │
+│                                         │
+│          [ Close ]  [ Open Cursor ]     │
+└─────────────────────────────────────────┘
 ```
 
-## 🔄 Hybrid Mode: GitHub Actions + Local Slack Enrichment
+### What happens when you click "Open Cursor":
 
-Want the best of both worlds? Run **GitHub Actions** for the main report (visible in your portfolio) plus **local enrichment** that adds Slack context to the same thread.
+1. ✅ A prompt is copied to your clipboard
+2. ✅ Cursor IDE opens
+3. 📋 **Just paste** (Cmd+V) in Cursor's chat
+4. 🤖 Cursor automatically:
+   - Searches your Slack messages
+   - Finds task-related updates
+   - Posts a summary to your Logbook thread
+   - Cleans up the temp file
 
-### How it works:
+**No coding required!** Just click and paste.
 
-```
-8:30 AM  │  GitHub Actions runs → Posts Daily Briefing to Slack
-         │
-8:32 AM  │  Local enrichment runs → Replies to the SAME thread with:
-         │  • Slack activity summary (if user token available)
-         │  • Prompt to engage @Cursor for full Slack analysis
-```
+---
 
-### Setup Hybrid Mode:
+## 📋 Available Commands
 
-```bash
-# Make setup executable
-chmod +x scripts/setup-enrichment.sh
+Run these manually anytime:
 
-# Run setup (installs launchd agents)
-./scripts/setup-enrichment.sh
-```
+| Command | What it does |
+|---------|--------------|
+| `python3 scripts/logbook-local.py briefing` | Generate morning briefing |
+| `python3 scripts/logbook-local.py closing` | Generate end-of-day report |
+| `python3 scripts/logbook-local.py weekly` | Generate weekly review |
+| `python3 scripts/logbook-local.py enrich` | Show Slack enrichment prompt |
+| `python3 scripts/logbook-local.py post-context` | Post saved context to thread |
 
-This keeps everything in **one clean thread**:
-```
-📨 Logbook (8:30 AM)
-└── ☀️ Daily Briefing — Monday, December 29, 2025
-    └── 💬 Slack Context (8:32 AM)
-        └── Reply @Cursor to analyze your Slack activity
-```
+---
 
-### Test Manually:
+## ⏰ Schedule Reference
 
-```bash
-# Dry run (won't post)
-python3 scripts/slack-enrichment.py --mode briefing --dry-run
+### Default Schedule (GitHub Actions)
 
-# Actually post
-python3 scripts/slack-enrichment.py --mode briefing
-```
+| Report | Time | Days |
+|--------|------|------|
+| ☀️ Daily Briefing | 8:30 AM | Mon-Fri |
+| 🌆 Daily Closing | 5:50 PM | Mon-Fri |
+| 📋 Weekly Review | 4:00 PM | Friday |
+
+### Slack Enrichment Reminder
+
+The reminder pops up **2 minutes after** each report:
+
+| Report | Reminder Time |
+|--------|---------------|
+| ☀️ After Briefing | 8:32 AM |
+| 🌆 After Closing | 5:52 PM |
+| 📋 After Weekly | 4:02 PM (Fri) |
+
+---
 
 ## 🔧 Customization
 
-### Change Schedule Times
+### Change Reminder Times
 
-Edit the plist files in `scripts/launchd/` before installing:
+Edit `scripts/launchd/com.logbook.enrich.plist`:
 
 ```xml
 <key>StartCalendarInterval</key>
-<dict>
-    <key>Hour</key>
-    <integer>9</integer>  <!-- Change hour here -->
-    <key>Minute</key>
-    <integer>0</integer>  <!-- Change minute here -->
-</dict>
+<array>
+    <dict>
+        <key>Hour</key>
+        <integer>9</integer>  <!-- Change to 9 AM -->
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+    ...
+</array>
 ```
 
 Then reinstall:
 
 ```bash
-./scripts/setup-local.sh uninstall
-./scripts/setup-local.sh install
+./scripts/setup-enrichment.sh
 ```
 
-### Linux/Windows
+### Skip the Reminder
 
-The script itself (`logbook-local.py`) works on any OS. Only the scheduling differs:
+Just close the dialog - nothing happens. The prompt isn't saved anywhere.
 
-- **Linux**: Use cron instead of launchd
-  ```bash
-  # Add to crontab -e
-  30 8 * * 1-5 cd /path/to/repo && python3 scripts/logbook-local.py briefing
-  50 17 * * 1-5 cd /path/to/repo && python3 scripts/logbook-local.py closing
-  0 15 * * 5 cd /path/to/repo && python3 scripts/logbook-local.py weekly
-  ```
-
-- **Windows**: Use Task Scheduler
+---
 
 ## 🐛 Troubleshooting
 
-### Check if jobs are running
+### "Reminder never appears"
 
+Check if it's loaded:
 ```bash
-./scripts/setup-local.sh status
+launchctl list | grep logbook.enrich
 ```
+
+If not listed, reinstall:
+```bash
+./scripts/setup-enrichment.sh
+```
+
+### "Cursor doesn't have Slack MCP"
+
+The enrichment feature requires Cursor's Slack MCP integration. If your company doesn't have this set up, you can still:
+
+1. Manually search your Slack
+2. Write a summary to `scripts/.slack-context.md`
+3. Run `python3 scripts/logbook-local.py post-context`
+
+### "Bot can't post to Slack"
+
+Make sure your Slack Bot Token has these scopes:
+- `chat:write` - Send messages
+- `im:write` - Send DMs
+- `im:history` - Read DM history (for finding the thread)
 
 ### View logs
 
 ```bash
-cat logs/briefing.log
-cat logs/briefing.error.log
+# Check if the reminder ran
+cat /tmp/com.logbook.enrich.stdout
+
+# Check for errors
+cat /tmp/com.logbook.enrich.stderr
 ```
 
-### Test without posting to Slack
+---
 
-Remove or comment out `SLACK_BOT_TOKEN` in `.env` - the script will print the message instead of posting.
+## 📁 File Structure
 
-### "Slack search requires user token"
+```
+scripts/
+├── logbook-local.py      # Main script for all reports
+├── env.example           # Template for credentials
+├── .env                  # Your credentials (git-ignored)
+├── .slack-context.md     # Temp file for Slack summaries (git-ignored)
+├── setup-local.sh        # Full local mode setup
+├── setup-enrichment.sh   # Slack reminder setup
+├── README.md             # This file
+└── launchd/
+    ├── com.logbook.briefing.plist   # Schedule for briefing
+    ├── com.logbook.closing.plist    # Schedule for closing  
+    ├── com.logbook.weekly.plist     # Schedule for weekly
+    └── com.logbook.enrich.plist     # Slack enrichment reminder
+```
 
-This means only `SLACK_BOT_TOKEN` is configured. For full Slack access, you need either:
-- `SLACK_USER_TOKEN` with `search:read` scope
-- `SLACK_MCP_TOKEN_PATH` pointing to your MCP's token
-- A working Slack MCP OAuth integration
+---
 
 ## 🤝 Contributing
 
-When adding features to the local script, please also update the GitHub Actions workflows to maintain parity where possible. See [CONTRIBUTING.md](../CONTRIBUTING.md) for the public-first development pattern.
+When adding features, follow the **public-first pattern**:
 
+1. Make changes in the public repo first
+2. Keep everything generic (no company-specific values)
+3. Use environment variables for configuration
+4. Update documentation for non-technical users
