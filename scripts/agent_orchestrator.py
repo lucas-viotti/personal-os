@@ -514,7 +514,7 @@ RAW SLACK MESSAGES:
 
 Generate a Slack-formatted summary with this EXACT structure:
 
-*Slack Activity Summary — {today_short}*
+*💬 Slack Activity Summary — {today_short}*
 
 *Key Conversations Today*
 [Group messages by topic/project with • bullets]
