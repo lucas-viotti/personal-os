@@ -36,8 +36,8 @@ The Orchestrator is the central coordinator of the Personal OS multi-agent syste
 
 | Workflow | Default Time | Context Period |
 |----------|-------------|----------------|
-| Daily Briefing | 8:30 AM | Last 24 hours |
-| Daily Closing | 5:50 PM | Since last briefing |
+| Daily Briefing | 9:00 AM | Last 24 hours |
+| Daily Closing | 5:30 PM | Since last briefing |
 | Weekly Review | Friday 4:00 PM | Last 7 days |
 
 ### Event-Based Triggers
@@ -88,7 +88,7 @@ trigger:
   
   # For scheduled triggers
   scheduled:
-    time: "08:30"
+    time: "09:00"
     workflow: "daily_briefing"
     
   # For on-demand triggers (user request)
@@ -268,7 +268,7 @@ IF agent takes > 30 seconds:
 
 ## Acceptance Criteria
 
-- [ ] Responds to time-based triggers (8:30 AM, 5:50 PM, Friday 4 PM)
+- [ ] Responds to time-based triggers (9:00 AM, 5:30 PM, Friday 4 PM)
 - [ ] Responds to event-based triggers (user prompts)
 - [ ] Extensible to new event triggers without architecture changes
 - [ ] Determines appropriate context period for each workflow

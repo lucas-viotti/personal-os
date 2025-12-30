@@ -27,7 +27,7 @@ The Workflow Agent is an **LLM-based agent** that produces the daily briefing, d
 
 ### 1. Daily Briefing
 
-**Trigger:** 8:30 AM or "What should I focus on?"
+**Trigger:** 9:00 AM or "What should I focus on?"
 
 **Logic:**
 ```
@@ -86,7 +86,7 @@ briefing:
 
 ### 2. Daily Closing
 
-**Trigger:** 5:50 PM or "Summarize my day"
+**Trigger:** 5:30 PM or "Summarize my day"
 
 **Logic:**
 ```

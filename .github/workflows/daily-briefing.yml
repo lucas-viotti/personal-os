@@ -6,8 +6,8 @@ name: Daily Briefing
 
 on:
   schedule:
-    # 8:30 AM BRT (11:30 UTC) Mon-Fri
-    - cron: '30 11 * * 1-5'
+    # 9:00 AM BRT (12:00 UTC) Mon-Fri
+    - cron: '0 12 * * 1-5'
   workflow_dispatch:
 
 env:
@@ -163,78 +163,127 @@ jobs:
       - name: Read Current Tasks
         id: tasks
         run: |
+          TODAY=$(date +'%Y-%m-%d')
+          
           # Count by priority
           P0_COUNT=$(grep -l "priority: P0" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
           P1_COUNT=$(grep -l "priority: P1" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
           BLOCKED_COUNT=$(grep -l "status: b" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
           
           # Get P0 tasks - separated by status (no emoji on each line)
+          # Skip blocked tasks from active lists
           P0_NOT_STARTED=""
           P0_IN_PROGRESS=""
           for file in $(grep -l "priority: P0" Tasks/*.md 2>/dev/null || echo ""); do
             TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
             STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+            # Skip blocked tasks - they go to blocked section
+            [ "$STATUS" = "b" ] && continue
             case $STATUS in
               n) P0_NOT_STARTED="${P0_NOT_STARTED}• ${TITLE}\n" ;;
-              s|ip|b) P0_IN_PROGRESS="${P0_IN_PROGRESS}• ${TITLE}\n" ;;
+              s|ip) P0_IN_PROGRESS="${P0_IN_PROGRESS}• ${TITLE}\n" ;;
             esac
           done
           
           # Get P1 tasks - separated by status (no emoji on each line)
+          # Skip blocked tasks from active lists
           P1_NOT_STARTED=""
           P1_IN_PROGRESS=""
           for file in $(grep -l "priority: P1" Tasks/*.md 2>/dev/null || echo ""); do
             TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
             STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+            # Skip blocked tasks - they go to blocked section
+            [ "$STATUS" = "b" ] && continue
             case $STATUS in
               n) P1_NOT_STARTED="${P1_NOT_STARTED}• ${TITLE}\n" ;;
-              s|ip|b) P1_IN_PROGRESS="${P1_IN_PROGRESS}• ${TITLE}\n" ;;
+              s|ip) P1_IN_PROGRESS="${P1_IN_PROGRESS}• ${TITLE}\n" ;;
             esac
           done
           
-          # Get blocked tasks (across all priorities)
+          # Get blocked tasks with details (across all priorities)
           BLOCKED_TASKS=""
           for file in $(grep -l "status: b" Tasks/*.md 2>/dev/null || echo ""); do
             TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
-            BLOCKED_TASKS="${BLOCKED_TASKS}• ${TITLE}\n"
+            BLOCKED_BY=$(grep "^blocked_by:" "$file" | sed 's/blocked_by: //' | head -1)
+            BLOCKED_EXPECTED=$(grep "^blocked_expected:" "$file" | sed 's/blocked_expected: //' | head -1)
+            if [ -n "$BLOCKED_BY" ]; then
+              BLOCKED_TASKS="${BLOCKED_TASKS}• ${TITLE} — _blocked by: ${BLOCKED_BY}_"
+              if [ -n "$BLOCKED_EXPECTED" ]; then
+                BLOCKED_TASKS="${BLOCKED_TASKS} (check ${BLOCKED_EXPECTED})"
+              fi
+              BLOCKED_TASKS="${BLOCKED_TASKS}\n"
+            else
+              BLOCKED_TASKS="${BLOCKED_TASKS}• ${TITLE}\n"
+            fi
           done
           
-          # Extract detailed context from top priority tasks for AI analysis
-          # Get P0 not-started tasks with full context (most important for AI)
+          # Extract detailed context from tasks for AI analysis
+          # Include next_action and next_action_due for prioritization
           TASK_DETAILS=""
-          for file in $(grep -l "priority: P0" Tasks/*.md 2>/dev/null | head -3 || echo ""); do
+          ACTIONS_DUE_TODAY=""
+          
+          # Process P0 tasks
+          for file in $(grep -l "priority: P0" Tasks/*.md 2>/dev/null | head -5 || echo ""); do
             TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
             STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+            DUE_DATE=$(grep "^due_date:" "$file" | sed 's/due_date: //' | head -1)
+            NEXT_ACTION=$(grep "^next_action:" "$file" | sed 's/next_action: //' | head -1)
+            NEXT_ACTION_DUE=$(grep "^next_action_due:" "$file" | sed 's/next_action_due: //' | head -1)
+            BLOCKED_BY=$(grep "^blocked_by:" "$file" | sed 's/blocked_by: //' | head -1)
+            
             # Extract Context section (first 3 lines after ## Context)
             CONTEXT=$(sed -n '/^## Context/,/^##/{/^## Context/d;/^##/d;p}' "$file" | head -3 | tr '\n' ' ')
             # Extract latest Progress Log entry
             PROGRESS=$(sed -n '/^## Progress Log/,/^##/{/^## Progress Log/d;/^##/d;p}' "$file" | grep "^-" | tail -1)
             
             case $STATUS in
-              n) STATUS_EMOJI="🔴" ;;
-              s|ip) STATUS_EMOJI="🟡" ;;
-              b) STATUS_EMOJI="🟠" ;;
-              *) STATUS_EMOJI="⚪" ;;
+              n) STATUS_EMOJI="🔴 Not started" ;;
+              s|ip) STATUS_EMOJI="🟡 In progress" ;;
+              b) STATUS_EMOJI="🟠 Blocked" ;;
+              *) STATUS_EMOJI="⚪ Unknown" ;;
             esac
             
-            TASK_DETAILS="${TASK_DETAILS}---\nTASK: ${TITLE}\nSTATUS: ${STATUS_EMOJI}\nCONTEXT: ${CONTEXT}\nLATEST: ${PROGRESS}\n"
+            TASK_DETAILS="${TASK_DETAILS}---\nTASK: ${TITLE}\nPRIORITY: P0\nSTATUS: ${STATUS_EMOJI}\nDUE_DATE: ${DUE_DATE}\nNEXT_ACTION: ${NEXT_ACTION}\nNEXT_ACTION_DUE: ${NEXT_ACTION_DUE}\n"
+            if [ -n "$BLOCKED_BY" ]; then
+              TASK_DETAILS="${TASK_DETAILS}BLOCKED_BY: ${BLOCKED_BY}\n"
+            fi
+            TASK_DETAILS="${TASK_DETAILS}CONTEXT: ${CONTEXT}\nLATEST: ${PROGRESS}\n"
+            
+            # Track actions due today or overdue
+            if [ -n "$NEXT_ACTION_DUE" ] && [ "$NEXT_ACTION_DUE" \<= "$TODAY" ] && [ "$STATUS" != "b" ]; then
+              ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• P0: ${NEXT_ACTION} (${TITLE})\n"
+            fi
           done
           
-          # Also get top P1 not-started tasks
-          for file in $(grep -l "priority: P1" Tasks/*.md 2>/dev/null | head -3 || echo ""); do
+          # Process P1 tasks
+          for file in $(grep -l "priority: P1" Tasks/*.md 2>/dev/null | head -5 || echo ""); do
             TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
             STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+            DUE_DATE=$(grep "^due_date:" "$file" | sed 's/due_date: //' | head -1)
+            NEXT_ACTION=$(grep "^next_action:" "$file" | sed 's/next_action: //' | head -1)
+            NEXT_ACTION_DUE=$(grep "^next_action_due:" "$file" | sed 's/next_action_due: //' | head -1)
+            BLOCKED_BY=$(grep "^blocked_by:" "$file" | sed 's/blocked_by: //' | head -1)
+            
             CONTEXT=$(sed -n '/^## Context/,/^##/{/^## Context/d;/^##/d;p}' "$file" | head -3 | tr '\n' ' ')
             PROGRESS=$(sed -n '/^## Progress Log/,/^##/{/^## Progress Log/d;/^##/d;p}' "$file" | grep "^-" | tail -1)
             
             case $STATUS in
-              n) STATUS_EMOJI="🔴" ;;
-              s|ip) STATUS_EMOJI="🟡" ;;
-              b) STATUS_EMOJI="🟠" ;;
-              *) STATUS_EMOJI="⚪" ;;
+              n) STATUS_EMOJI="🔴 Not started" ;;
+              s|ip) STATUS_EMOJI="🟡 In progress" ;;
+              b) STATUS_EMOJI="🟠 Blocked" ;;
+              *) STATUS_EMOJI="⚪ Unknown" ;;
             esac
             
-            TASK_DETAILS="${TASK_DETAILS}---\nTASK: ${TITLE}\nSTATUS: ${STATUS_EMOJI}\nCONTEXT: ${CONTEXT}\nLATEST: ${PROGRESS}\n"
+            TASK_DETAILS="${TASK_DETAILS}---\nTASK: ${TITLE}\nPRIORITY: P1\nSTATUS: ${STATUS_EMOJI}\nDUE_DATE: ${DUE_DATE}\nNEXT_ACTION: ${NEXT_ACTION}\nNEXT_ACTION_DUE: ${NEXT_ACTION_DUE}\n"
+            if [ -n "$BLOCKED_BY" ]; then
+              TASK_DETAILS="${TASK_DETAILS}BLOCKED_BY: ${BLOCKED_BY}\n"
+            fi
+            TASK_DETAILS="${TASK_DETAILS}CONTEXT: ${CONTEXT}\nLATEST: ${PROGRESS}\n"
+            
+            # Track actions due today or overdue
+            if [ -n "$NEXT_ACTION_DUE" ] && [ "$NEXT_ACTION_DUE" \<= "$TODAY" ] && [ "$STATUS" != "b" ]; then
+              ACTIONS_DUE_TODAY="${ACTIONS_DUE_TODAY}• P1: ${NEXT_ACTION} (${TITLE})\n"
+            fi
           done
           
           # Output counts
@@ -267,6 +316,11 @@ jobs:
           # Output detailed task context for AI
           echo "task_details<<EOF" >> $GITHUB_OUTPUT
           echo -e "$TASK_DETAILS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          # Output actions due today (for AI priority)
+          echo "actions_due_today<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$ACTIONS_DUE_TODAY" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       # ============================================
@@ -303,7 +357,9 @@ jobs:
           P1_NOT_STARTED: ${{ steps.tasks.outputs.p1_not_started }}
           P1_IN_PROGRESS: ${{ steps.tasks.outputs.p1_in_progress }}
           BLOCKED_COUNT: ${{ steps.tasks.outputs.blocked_count }}
+          BLOCKED_TASKS: ${{ steps.tasks.outputs.blocked_tasks }}
           TASK_DETAILS: ${{ steps.tasks.outputs.task_details }}
+          ACTIONS_DUE_TODAY: ${{ steps.tasks.outputs.actions_due_today }}
           JIRA_RAW: ${{ steps.jira.outputs.jira_raw }}
           JIRA_COUNT: ${{ steps.jira.outputs.jira_count }}
           CONFLUENCE_DATA: ${{ steps.confluence.outputs.confluence_data }}
@@ -325,9 +381,24 @@ jobs:
           CRITICAL: Output must be UNDER 2500 characters total.
           Use Slack mrkdwn: *bold*, _italic_, • for bullets
 
+          NEW SCHEMA: Each task now has:
+          - next_action: The specific action with earliest due date
+          - next_action_due: When that action is due
+          - blocked_by: Who/what is blocking (if status=blocked)
+          
+          PRIORITIZATION LOGIC:
+          1. FIRST: Tasks with next_action_due TODAY or OVERDUE (highest priority)
+          2. THEN: Priority level (P0 > P1)
+          3. SKIP: Blocked tasks (show separately in Tracking section)
+
           Generate this EXACT structure (follow formatting precisely):
 
           *☀️ Daily Briefing — [TODAY's DATE]*
+
+          *🎯 Actions Due Today*
+          [If ACTIONS_DUE_TODAY is not empty, list them here with their parent task]
+          • [next_action] — _[task name]_
+          [If empty, skip this section entirely]
 
           *🚨 P0 Tasks (Do Today)*
           *🔴 Not started*
@@ -338,33 +409,31 @@ jobs:
           *⚡ P1 Tasks (This Week)*
           *🔴 Not started*
           • [task name]
-          • [task name]
           *🟡 In Progress*
           • [task name]
-          • [task name]
+
+          *⏳ Tracking (Blocked)*
+          • [task name] — _blocked by: [who/what]_
+          [If no blocked tasks, skip this section]
 
           ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
           *💡 AI Focus Recommendation*
-          Based on prioritization rules, your current priorities and recent activity, here's what to focus on:
+          Based on next_action_due dates, prioritization rules, and recent activity:
 
-          • 🔴 *[P0 Task name]*
-          _[2-3 sentences explaining WHY this is prioritized based on the rules. Reference the specific criteria (deadline, blocking others, goal alignment, etc.)]_
+          • 🔴 *[next_action]* — [task name]
+          _Due: [next_action_due]. [1-2 sentences explaining why this is prioritized. Reference deadline, blocking others, or goal alignment.]_
 
-          • 🟡 *[P1 Task name]*
-          _[2-3 sentences explaining the priority reasoning based on the rules. Reference related Jira tickets or Confluence pages if relevant.]_
-
-          • 🟡 *[Another task]*
-          _[2-3 sentences with reasoning tied to the prioritization criteria.]_
+          • 🟡 *[next_action]* — [task name]
+          _Due: [next_action_due]. [1-2 sentences with reasoning.]_
 
           _📊 See thread for detailed activity (Jira & Confluence) →_
 
           RULES:
-          - Status headers: *🔴 Not started* and *🟡 In Progress* as bold headers
-          - Task bullets: NO emoji, just • [task name]
-          - Skip empty status groups entirely
-          - Focus Recommendation: Apply prioritization rules to select and explain task priority (2-3 sentences each)
-          - Explicitly mention which prioritization criteria applies to each recommended task
+          - Focus on next_action fields, not just task titles
+          - Blocked tasks go ONLY in Tracking section, NOT in focus recommendations
+          - Skip empty sections entirely
+          - Recommendations should be based on earliest next_action_due dates first
           PROMPT_END
           
           TODAY=$(date +'%A, %B %d, %Y')
@@ -375,15 +444,19 @@ jobs:
 
           RAW DATA TO SUMMARIZE:
 
-          P0 TASKS ($P0_COUNT total):
+          ACTIONS DUE TODAY OR OVERDUE (prioritize these first):
+          $ACTIONS_DUE_TODAY
+
+          P0 TASKS ($P0_COUNT total, excluding blocked):
           Not started: $P0_NOT_STARTED
           In progress: $P0_IN_PROGRESS
 
-          P1 TASKS ($P1_COUNT total):
+          P1 TASKS ($P1_COUNT total, excluding blocked):
           Not started: $P1_NOT_STARTED
           In progress: $P1_IN_PROGRESS
 
-          BLOCKED: $BLOCKED_COUNT
+          BLOCKED TASKS ($BLOCKED_COUNT total):
+          $BLOCKED_TASKS
 
           JIRA ($JIRA_COUNT issues in last 24h):
           $JIRA_RAW
@@ -391,10 +464,10 @@ jobs:
           CONFLUENCE ($CONFLUENCE_COUNT pages):
           $CONFLUENCE_DATA
 
-          TASK CONTEXT FOR RECOMMENDATIONS:
+          DETAILED TASK CONTEXT (includes next_action and next_action_due):
           $TASK_DETAILS
           
-          PRIORITIZATION RULES (use these to decide which tasks to recommend):
+          PRIORITIZATION RULES:
           $PRIORITIZATION_RULES"
 
           API_URL="${LLM_API_URL:-https://api.openai.com}"

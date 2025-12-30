@@ -6,8 +6,8 @@ name: Daily Closing
 
 on:
   schedule:
-    # 5:50 PM BRT (20:50 UTC) Mon-Fri
-    - cron: '50 20 * * 1-5'
+    # 5:30 PM BRT (20:30 UTC) Mon-Fri
+    - cron: '30 20 * * 1-5'
   workflow_dispatch:
 
 env:
@@ -233,14 +233,23 @@ jobs:
       - name: Read Current Tasks
         id: tasks
         run: |
-          # Get all active tasks with details
+          TODAY=$(date +'%Y-%m-%d')
+          
+          # Get all active tasks with details including new schema fields
           TASK_DETAILS=""
+          OVERDUE_ACTIONS=""
+          BLOCKED_TASKS=""
+          
           for file in Tasks/*.md; do
             [ -f "$file" ] || continue
             
             TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
             PRIORITY=$(grep "^priority:" "$file" | sed 's/priority: //' | head -1)
             STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+            DUE_DATE=$(grep "^due_date:" "$file" | sed 's/due_date: //' | head -1)
+            NEXT_ACTION=$(grep "^next_action:" "$file" | sed 's/next_action: //' | head -1)
+            NEXT_ACTION_DUE=$(grep "^next_action_due:" "$file" | sed 's/next_action_due: //' | head -1)
+            BLOCKED_BY=$(grep "^blocked_by:" "$file" | sed 's/blocked_by: //' | head -1)
             
             case $STATUS in
               n) STATUS_TEXT="Not Started"; STATUS_EMOJI="🔴" ;;
@@ -250,34 +259,54 @@ jobs:
               *) STATUS_TEXT="Unknown"; STATUS_EMOJI="⚪" ;;
             esac
             
-            TASK_DETAILS="${TASK_DETAILS}• ${STATUS_EMOJI} [${PRIORITY}] ${TITLE}\n"
+            TASK_DETAILS="${TASK_DETAILS}• ${STATUS_EMOJI} [${PRIORITY}] ${TITLE}"
+            if [ -n "$NEXT_ACTION" ]; then
+              TASK_DETAILS="${TASK_DETAILS}\n  → Next: ${NEXT_ACTION}"
+              if [ -n "$NEXT_ACTION_DUE" ]; then
+                TASK_DETAILS="${TASK_DETAILS} (due: ${NEXT_ACTION_DUE})"
+              fi
+            fi
+            TASK_DETAILS="${TASK_DETAILS}\n"
+            
+            # Track overdue actions
+            if [ -n "$NEXT_ACTION_DUE" ] && [ "$NEXT_ACTION_DUE" \< "$TODAY" ] && [ "$STATUS" != "b" ] && [ "$STATUS" != "d" ]; then
+              OVERDUE_ACTIONS="${OVERDUE_ACTIONS}• ⚠️ [${PRIORITY}] ${NEXT_ACTION} — _${TITLE}_ (was due ${NEXT_ACTION_DUE})\n"
+            fi
+            
+            # Track blocked tasks
+            if [ "$STATUS" = "b" ]; then
+              BLOCKED_TASKS="${BLOCKED_TASKS}• 🟠 ${TITLE} — _blocked by: ${BLOCKED_BY}_\n"
+            fi
           done
           
           # Count by priority
           P0_COUNT=$(grep -l "priority: P0" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
           P1_COUNT=$(grep -l "priority: P1" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
+          BLOCKED_COUNT=$(grep -l "status: b" Tasks/*.md 2>/dev/null | wc -l | tr -d ' ')
           
-          # P0 tasks - separated by status (no emoji on each line)
+          # P0 tasks - separated by status (skip blocked)
           P0_NOT_STARTED=""
           P0_IN_PROGRESS=""
           for file in $(grep -l "priority: P0" Tasks/*.md 2>/dev/null || echo ""); do
             TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
             STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+            [ "$STATUS" = "b" ] && continue
             case $STATUS in
               n) P0_NOT_STARTED="${P0_NOT_STARTED}• ${TITLE}\n" ;;
-              s|ip|b) P0_IN_PROGRESS="${P0_IN_PROGRESS}• ${TITLE}\n" ;;
+              s|ip) P0_IN_PROGRESS="${P0_IN_PROGRESS}• ${TITLE}\n" ;;
             esac
           done
           
-          # P1 tasks - separated by status (no emoji on each line)
+          # P1 tasks - separated by status (skip blocked)
           P1_NOT_STARTED=""
           P1_IN_PROGRESS=""
           for file in $(grep -l "priority: P1" Tasks/*.md 2>/dev/null || echo ""); do
             TITLE=$(grep "^title:" "$file" | sed 's/title: //' | head -1)
             STATUS=$(grep "^status:" "$file" | sed 's/status: //' | head -1)
+            [ "$STATUS" = "b" ] && continue
             case $STATUS in
               n) P1_NOT_STARTED="${P1_NOT_STARTED}• ${TITLE}\n" ;;
-              s|ip|b) P1_IN_PROGRESS="${P1_IN_PROGRESS}• ${TITLE}\n" ;;
+              s|ip) P1_IN_PROGRESS="${P1_IN_PROGRESS}• ${TITLE}\n" ;;
             esac
           done
           
@@ -287,6 +316,7 @@ jobs:
           
           echo "p0_count=$P0_COUNT" >> $GITHUB_OUTPUT
           echo "p1_count=$P1_COUNT" >> $GITHUB_OUTPUT
+          echo "blocked_count=$BLOCKED_COUNT" >> $GITHUB_OUTPUT
           
           echo "p0_not_started<<EOF" >> $GITHUB_OUTPUT
           echo -e "$P0_NOT_STARTED" >> $GITHUB_OUTPUT
@@ -302,6 +332,14 @@ jobs:
           
           echo "p1_in_progress<<EOF" >> $GITHUB_OUTPUT
           echo -e "$P1_IN_PROGRESS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "overdue_actions<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$OVERDUE_ACTIONS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+          echo "blocked_tasks<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$BLOCKED_TASKS" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
       # ============================================

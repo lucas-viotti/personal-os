@@ -165,8 +165,8 @@ The system includes automated Slack reports:
 
 | Report | Schedule | Purpose |
 |--------|----------|---------|
-| ☀️ Daily Briefing | 8:30 AM | Morning focus based on `next_action_due` |
-| 🌆 Daily Closing | 5:50 PM | End-of-day summary + suggested task updates |
+| ☀️ Daily Briefing | 9:00 AM | Morning focus based on `next_action_due` |
+| 🌆 Daily Closing | 5:30 PM | End-of-day summary + suggested task updates |
 | 📋 Weekly Review | Friday 4:00 PM | Weekly reflection with accomplishments |
 
 **Slack Enrichment Flow:**

@@ -17,11 +17,11 @@
     
     <key>StartCalendarInterval</key>
     <dict>
-        <!-- 8:30 AM Monday-Friday -->
+        <!-- 9:00 AM Monday-Friday -->
         <key>Hour</key>
-        <integer>8</integer>
+        <integer>9</integer>
         <key>Minute</key>
-        <integer>30</integer>
+        <integer>0</integer>
     </dict>
     
     <key>StandardOutPath</key>

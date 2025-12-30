@@ -20,7 +20,7 @@ See [SPEC-agent-architecture.md](../docs/SPEC-agent-architecture.md) for full de
 ┌─────────────────────────────────────────────────────────────────┐
 │                      ORCHESTRATOR AGENT                          │
 │                                                                  │
-│  • Time-based triggers (8:30 AM, 5:50 PM, Friday 4 PM)         │
+│  • Time-based triggers (9:00 AM, 5:30 PM, Friday 4 PM)         │
 │  • Event-based triggers (user prompts)                          │
 │  • Routes to specialized agents                                  │
 └───────────────────────────┬─────────────────────────────────────┘
@@ -41,12 +41,12 @@ See [SPEC-agent-architecture.md](../docs/SPEC-agent-architecture.md) for full de
 
 ## Data Flow
 
-### Daily Briefing (8:30 AM)
+### Daily Briefing (9:00 AM)
 ```
 Orchestrator (trigger) → Context Gatherer (last 24h) → Analyzer → Workflow → User
 ```
 
-### Daily Closing (5:50 PM)
+### Daily Closing (5:30 PM)
 ```
 Orchestrator (trigger) → Context Gatherer (since briefing) → Analyzer → Workflow → User
 ```

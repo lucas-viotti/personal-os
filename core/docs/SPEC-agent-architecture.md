@@ -16,7 +16,7 @@ These values can be adjusted by users based on their workflow patterns:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `CONTEXT_CACHE_TTL` | 25 min | How long to cache context before re-fetching. Higher = faster but potentially stale. |
-| `DAILY_BRIEFING_TIME` | 08:30 | Morning workflow trigger time |
+| `DAILY_BRIEFING_TIME` | 09:00 | Morning workflow trigger time |
 | `DAILY_CLOSING_TIME` | 17:50 | Evening workflow trigger time |
 | `WEEKLY_REVIEW_DAY` | Friday | Day of week for weekly review |
 | `WEEKLY_REVIEW_TIME` | 16:00 | Weekly review trigger time |
@@ -151,15 +151,15 @@ The Orchestrator responds to two types of triggers:
 
 | Type | Description | Examples |
 |------|-------------|----------|
-| **Time-based** | Scheduled execution at specific times | 8:30 AM, 5:50 PM, Friday 4 PM |
+| **Time-based** | Scheduled execution at specific times | 9:00 AM, 5:30 PM, Friday 4 PM |
 | **Event-based** | Triggered by user request or system event | "Run daily briefing", file change, etc. |
 
 **Defined Workflows:**
 
 | Workflow | Default Trigger | Event Trigger | Context Period | Agents Called |
 |----------|-----------------|---------------|----------------|---------------|
-| Daily Briefing | 8:30 AM | "What should I focus on?" | Last 24h | Context → Analyzer → Workflow |
-| Daily Closing | 5:50 PM | "Summarize my day" | Since last briefing | Context → Analyzer → Workflow |
+| Daily Briefing | 9:00 AM | "What should I focus on?" | Last 24h | Context → Analyzer → Workflow |
+| Daily Closing | 5:30 PM | "Summarize my day" | Since last briefing | Context → Analyzer → Workflow |
 | Weekly Review | Friday 4:00 PM | "Weekly review" | Last 7 days | Context → Analyzer → Reflection |
 | Status Check | — | "Where are we on X?" | Last 7 days | Context → Workflow |
 | Ad-hoc Analysis | — | "Check my priorities" | Configurable | Context → Analyzer |
@@ -181,7 +181,7 @@ trigger:
   
   # For scheduled triggers
   scheduled:
-    time: "08:30"
+    time: "09:00"
     workflow: "daily_briefing"
     
   # For on-demand triggers (user request)
@@ -679,14 +679,14 @@ weekly_review:
 
 ## 3. Data Flow
 
-### 3.1 Daily Briefing Flow (8:30 AM)
+### 3.1 Daily Briefing Flow (9:00 AM)
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
 │ Orchestrator │────▶│   Context    │────▶│   Analyzer   │────▶│   Workflow   │
 │              │     │   Gatherer   │     │              │     │              │
 │ Trigger:     │     │              │     │              │     │              │
-│ 8:30 AM      │     │ Fetch:       │     │ Check:       │     │ Generate:    │
+│ 9:00 AM      │     │ Fetch:       │     │ Check:       │     │ Generate:    │
 │              │     │ - Slack 24h  │     │ - Priorities │     │ - Focus list │
 │              │     │ - Jira 24h   │     │ - Blockers   │     │ - Alerts     │
 │              │     │ - Tasks      │     │ - Due dates  │     │ - Tracking   │
@@ -712,14 +712,14 @@ weekly_review:
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 Daily Closing Flow (5:50 PM)
+### 3.2 Daily Closing Flow (5:30 PM)
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
 │ Orchestrator │────▶│   Context    │────▶│   Analyzer   │────▶│   Workflow   │
 │              │     │   Gatherer   │     │              │     │              │
 │ Trigger:     │     │              │     │              │     │              │
-│ 5:50 PM      │     │ Fetch:       │     │ Compare:     │     │ Generate:    │
+│ 5:30 PM      │     │ Fetch:       │     │ Compare:     │     │ Generate:    │
 │              │     │ - Full day   │     │ - Morning    │     │ - Summary    │
 │              │     │   context    │     │   vs. now    │     │ - Jira sync  │
 │              │     │ - Git diffs  │     │ - Stale Jira │     │ - Next steps │
@@ -962,8 +962,8 @@ personal-os/
 ├── scripts/
 │   └── logbook-local.py      # Execution engine
 └── .github/workflows/
-    ├── daily-briefing.yml    # 8:30 AM trigger
-    ├── daily-closing.yml     # 5:50 PM trigger
+    ├── daily-briefing.yml    # 9:00 AM trigger
+    ├── daily-closing.yml     # 5:30 PM trigger
     └── weekly-review.yml     # Friday 4 PM trigger
 ```
 
@@ -1007,7 +1007,7 @@ Validate task metadata against latest context and suggest corrections.
 
 ### Orchestrator Agent
 
-- [ ] Responds to time-based triggers (scheduled workflows at 8:30 AM, 5:50 PM, Friday 4 PM)
+- [ ] Responds to time-based triggers (scheduled workflows at 9:00 AM, 5:30 PM, Friday 4 PM)
 - [ ] Responds to event-based triggers (user request via prompt)
 - [ ] Extensible to new event triggers without architecture changes
 - [ ] Determines appropriate context period for each workflow
