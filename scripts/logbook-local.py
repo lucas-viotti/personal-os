@@ -788,83 +788,58 @@ def generate_daily_closing(config: Dict[str, str]) -> tuple:
     git_changes = fetch_git_changes(config, days=1)
     tasks = read_tasks(config)
     
-    # AI Prompt - matches GitHub Actions workflow
-    prompt = f"""You are a productivity assistant. Generate a Slack end-of-day report.
+    # AI Prompt - Clean Daily Closing format (matches Daily Briefing style)
+    prompt = f"""Generate a concise Slack end-of-day report.
 
-CRITICAL RULES:
-1. Output must be UNDER 2500 characters total
-2. Use Slack mrkdwn: *bold*, _italic_, • for bullets
-3. ONLY report items with ACTUAL changes in the data - NEVER invent or assume
-4. If no changes, say so honestly - don't make up progress
-5. Be SPECIFIC - say exactly what changed, not vague summaries
+RULES:
+1. UNDER 2000 characters
+2. Slack mrkdwn: *bold*, _italic_, • bullets
+3. ONLY report ACTUAL changes from the data
+4. Be crisp and specific
 
-Generate this EXACT structure:
+OUTPUT FORMAT:
 
 *📊 Daily Closing — [TODAY's DATE]*
 
-*📈 Today's Progress*
-ONLY list items from the data that had ACTUAL changes:
-• 📝 *[filename]*: [quote the specific change from git diff]
-• 📋 *<Jira URL|ticket> - [card name]*: [exact change from changelog]
-• 📄 *[Confluence page]*: [what was edited]
+*✅ Completed Today*
+• *[Task/Card name]*: [one-line summary of what was done]
+If nothing completed: "_No completions recorded_"
 
-SKIP any item without real changes. If nothing changed, write: "_No recorded changes today._"
+*📈 Progress Made*
+• 🚩 *[P0 task]*: [specific progress]
+• 📌 *[P1 task]*: [specific progress]
+Only list tasks with ACTUAL evidence of progress. Skip if none.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+*🔄 Status Changes*
+List any tasks that changed status (started, blocked, etc):
+• *[Task name]*: [old status] → [new status]
+    _Reason:_ [why it changed, if known]
 
-*📋 Task Status*
-ONLY write about tasks that appear in Today's Progress or have suggested updates.
-*🚨 P0 Tasks (Do Today)*: [If no P0 changes recorded, say "No progress recorded - task remains incomplete"]
-*⚡ P1 Tasks (This Week)*: [Only mention tasks with actual evidence. Quote the specific change.]
+*💡 Suggested Updates*
+For tasks needing attention:
+• 🔴 *[Incomplete P0]*: _Reschedule or mark blocked_
+• 🟡 *[Task with Jira activity]*: _Log <URL|KEY> update to task file_
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Keep suggestions actionable and brief.
 
-*💡 Suggested Task Updates*
-Based on the ACTUAL changes above, suggest what to log:
-
-For P0 tasks with NO activity in the data:
-• 🔴 *[Task name]*: _No work recorded today. Reschedule to [date] or mark blocked._
-
-For tasks with Jira changes - use the EXACT change from data:
-• 🟡 *[Task name]*: _<URL|ticket>: [exact changelog entry]. Log this in the task file._
-
-For tasks with file changes:
-• 🟡 *[Task name]*: _File updated: "[quote diff]". Consider changing status._
-
-DO NOT suggest updates for tasks without evidence in the data.
-
-_📊 See thread for detailed activity (Jira & Confluence) →_
+_See thread for details →_
 
 TODAY: {datetime.now().strftime('%A, %B %d, %Y')}
 
-═══════════════════════════════════════════
-TASK FILE CHANGES ({git_changes['count']} files with actual changes)
-═══════════════════════════════════════════
-{git_changes['changes'][:1500]}
+--- DATA ---
 
-═══════════════════════════════════════════
-CURRENT TASK STATUS
-═══════════════════════════════════════════
-P0 TASKS (were due TODAY):
-Not started: {tasks['p0_not_started'] or '_None_'}
-In progress: {tasks['p0_in_progress'] or '_None_'}
+FILE CHANGES ({git_changes['count']}):
+{git_changes['changes'][:1200]}
 
-P1 TASKS (due this week):
-Not started: {tasks['p1_not_started'] or '_None_'}
-In progress: {tasks['p1_in_progress'] or '_None_'}
+TASKS:
+🚩 P0: {tasks['p0_in_progress'] or tasks['p0_not_started'] or 'None'}
+📌 P1: {tasks['p1_in_progress'][:200] if tasks['p1_in_progress'] else 'None'}
 
-═══════════════════════════════════════════
-JIRA ACTIVITY ({jira['count']} issues with actual changes)
-═══════════════════════════════════════════
-{jira.get('detailed', jira['data'])[:1500]}
+JIRA ({jira['count']}):
+{jira.get('detailed', jira['data'])[:1000]}
 
-═══════════════════════════════════════════
-CONFLUENCE ACTIVITY ({confluence['count']} pages)
-═══════════════════════════════════════════
-{confluence['data'][:500]}
-
-TASK DETAILS:
-{tasks['task_details'][:800]}"""
+CONFLUENCE ({confluence['count']}):
+{confluence['data'][:400]}"""
 
     main_report = get_ai_analysis(config, prompt, max_tokens=1000)
     
